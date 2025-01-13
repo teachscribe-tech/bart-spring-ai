@@ -117,7 +117,7 @@ public class WeaviateVectorStoreObservationIT {
 			observationRegistry.clear();
 
 			List<Document> results = vectorStore
-				.similaritySearch(SearchRequest.query("What is Great Depression").withTopK(1));
+				.similaritySearch(SearchRequest.builder().query("What is Great Depression").topK(1).build());
 
 			assertThat(results).isNotEmpty();
 
@@ -166,9 +166,7 @@ public class WeaviateVectorStoreObservationIT {
 			WeaviateClient weaviateClient = new WeaviateClient(
 					new io.weaviate.client.Config("http", weaviateContainer.getHttpHostAddress()));
 
-			return WeaviateVectorStore.builder()
-				.weaviateClient(weaviateClient)
-				.embeddingModel(embeddingModel)
+			return WeaviateVectorStore.builder(weaviateClient, embeddingModel)
 				.consistencyLevel(WeaviateVectorStore.ConsistentLevel.ONE)
 				.observationRegistry(observationRegistry)
 				.batchingStrategy(new TokenCountBatchingStrategy())

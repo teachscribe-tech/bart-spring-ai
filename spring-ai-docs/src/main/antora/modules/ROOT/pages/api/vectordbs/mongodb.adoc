@@ -70,7 +70,7 @@ List<Document> documents = List.of(
 vectorStore.add(documents);
 
 // Retrieve documents similar to a query
-List<Document> results = vectorStore.similaritySearch(SearchRequest.query("Spring").withTopK(5));
+List<Document> results = vectorStore.similaritySearch(SearchRequest.builder().query("Spring").topK(5).build());
 ----
 
 [[mongodbvector-properties]]
@@ -146,9 +146,7 @@ Then create the `MongoDBAtlasVectorStore` bean using the builder pattern:
 ----
 @Bean
 public VectorStore vectorStore(MongoTemplate mongoTemplate, EmbeddingModel embeddingModel) {
-    return MongoDBAtlasVectorStore.builder()
-        .mongoTemplate(mongoTemplate)
-        .embeddingModel(embeddingModel)
+    return MongoDBAtlasVectorStore.builder(mongoTemplate, embeddingModel)
         .collectionName("custom_vector_store")           // Optional: defaults to "vector_store"
         .vectorIndexName("custom_vector_index")          // Optional: defaults to "vector_index"
         .pathName("custom_embedding")                    // Optional: defaults to "embedding"
@@ -174,11 +172,11 @@ For example, you can use either the text expression language:
 
 [source,java]
 ----
-vectorStore.similaritySearch(SearchRequest.defaults()
-        .withQuery("The World")
-        .withTopK(5)
-        .withSimilarityThreshold(0.7)
-        .withFilterExpression("author in ['john', 'jill'] && article_type == 'blog'"));
+vectorStore.similaritySearch(SearchRequest.builder()
+        .query("The World")
+        .topK(5)
+        .similarityThreshold(0.7)
+        .filterExpression("author in ['john', 'jill'] && article_type == 'blog'").build());
 ----
 
 or programmatically using the `Filter.Expression` DSL:
@@ -187,13 +185,13 @@ or programmatically using the `Filter.Expression` DSL:
 ----
 FilterExpressionBuilder b = new FilterExpressionBuilder();
 
-vectorStore.similaritySearch(SearchRequest.defaults()
-        .withQuery("The World")
-        .withTopK(5)
-        .withSimilarityThreshold(0.7)
-        .withFilterExpression(b.and(
+vectorStore.similaritySearch(SearchRequest.builder()
+        .query("The World")
+        .topK(5)
+        .similarityThreshold(0.7)
+        .filterExpression(b.and(
                 b.in("author", "john", "jill"),
-                b.eq("article_type", "blog")).build()));
+                b.eq("article_type", "blog")).build()).build());
 ----
 
 NOTE: Those (portable) filter expressions get automatically converted into the proprietary MongoDB Atlas filter expressions.

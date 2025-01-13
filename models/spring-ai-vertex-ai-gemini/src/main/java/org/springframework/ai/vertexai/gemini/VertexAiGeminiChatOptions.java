@@ -17,6 +17,7 @@
 package org.springframework.ai.vertexai.gemini;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +29,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonInclude.Include;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.model.function.FunctionCallback;
 import org.springframework.ai.model.function.FunctionCallingOptions;
 import org.springframework.ai.vertexai.gemini.VertexAiGeminiChatModel.ChatModel;
@@ -68,7 +70,7 @@ public class VertexAiGeminiChatOptions implements FunctionCallingOptions {
 	/**
 	 * Optional. If specified, top k sampling will be used.
 	 */
-	private @JsonProperty("topK") Float topK;
+	private @JsonProperty("topK") Integer topK;
 
 	/**
 	 * Optional. The maximum number of tokens to generate.
@@ -183,16 +185,11 @@ public class VertexAiGeminiChatOptions implements FunctionCallingOptions {
 
 	@Override
 	public Integer getTopK() {
-		return (this.topK != null) ? this.topK.intValue() : null;
+		return this.topK;
 	}
 
-	public void setTopK(Float topK) {
-		this.topK = topK;
-	}
-
-	@JsonIgnore
 	public void setTopK(Integer topK) {
-		this.topK = (topK != null) ? topK.floatValue() : null;
+		this.topK = topK;
 	}
 
 	public Integer getCandidateCount() {
@@ -276,7 +273,7 @@ public class VertexAiGeminiChatOptions implements FunctionCallingOptions {
 	}
 
 	public List<VertexAiGeminiSafetySetting> getSafetySettings() {
-		return safetySettings;
+		return this.safetySettings;
 	}
 
 	public void setSafetySettings(List<VertexAiGeminiSafetySetting> safetySettings) {
@@ -346,6 +343,67 @@ public class VertexAiGeminiChatOptions implements FunctionCallingOptions {
 		return fromOptions(this);
 	}
 
+	public FunctionCallingOptions merge(ChatOptions options) {
+		VertexAiGeminiChatOptions.Builder builder = VertexAiGeminiChatOptions.builder();
+
+		// Merge chat-specific options
+		builder.model(options.getModel() != null ? options.getModel() : this.getModel())
+			.maxOutputTokens(options.getMaxTokens() != null ? options.getMaxTokens() : this.getMaxOutputTokens())
+			.stopSequences(options.getStopSequences() != null ? options.getStopSequences() : this.getStopSequences())
+			.temperature(options.getTemperature() != null ? options.getTemperature() : this.getTemperature())
+			.topP(options.getTopP() != null ? options.getTopP() : this.getTopP())
+			.topK(options.getTopK() != null ? options.getTopK() : this.getTopK());
+
+		// Try to get function-specific properties if options is a FunctionCallingOptions
+		if (options instanceof FunctionCallingOptions functionOptions) {
+			builder.proxyToolCalls(functionOptions.getProxyToolCalls() != null ? functionOptions.getProxyToolCalls()
+					: this.proxyToolCalls);
+
+			Set<String> functions = new HashSet<>();
+			if (this.functions != null) {
+				functions.addAll(this.functions);
+			}
+			if (functionOptions.getFunctions() != null) {
+				functions.addAll(functionOptions.getFunctions());
+			}
+			builder.functions(functions);
+
+			List<FunctionCallback> functionCallbacks = new ArrayList<>();
+			if (this.functionCallbacks != null) {
+				functionCallbacks.addAll(this.functionCallbacks);
+			}
+			if (functionOptions.getFunctionCallbacks() != null) {
+				functionCallbacks.addAll(functionOptions.getFunctionCallbacks());
+			}
+			builder.functionCallbacks(functionCallbacks);
+
+			Map<String, Object> context = new HashMap<>();
+			if (this.toolContext != null) {
+				context.putAll(this.toolContext);
+			}
+			if (functionOptions.getToolContext() != null) {
+				context.putAll(functionOptions.getToolContext());
+			}
+			builder.toolContext(context);
+		}
+		else {
+			// If not a FunctionCallingOptions, preserve current function-specific
+			// properties
+			builder.proxyToolCalls(this.proxyToolCalls);
+			builder.functions(this.functions != null ? new HashSet<>(this.functions) : null);
+			builder.functionCallbacks(this.functionCallbacks != null ? new ArrayList<>(this.functionCallbacks) : null);
+			builder.toolContext(this.toolContext != null ? new HashMap<>(this.toolContext) : null);
+		}
+
+		// Preserve Vertex AI Gemini-specific properties
+		builder.candidateCount(this.candidateCount)
+			.responseMimeType(this.responseMimeType)
+			.googleSearchRetrieval(this.googleSearchRetrieval)
+			.safetySettings(this.safetySettings != null ? new ArrayList<>(this.safetySettings) : null);
+
+		return builder.build();
+	}
+
 	public enum TransportType {
 
 		GRPC, REST
@@ -371,7 +429,7 @@ public class VertexAiGeminiChatOptions implements FunctionCallingOptions {
 			return this;
 		}
 
-		public Builder topK(Float topK) {
+		public Builder topK(Integer topK) {
 			this.options.setTopK(topK);
 			return this;
 		}
@@ -436,156 +494,6 @@ public class VertexAiGeminiChatOptions implements FunctionCallingOptions {
 		}
 
 		public Builder toolContext(Map<String, Object> toolContext) {
-			if (this.options.toolContext == null) {
-				this.options.toolContext = toolContext;
-			}
-			else {
-				this.options.toolContext.putAll(toolContext);
-			}
-			return this;
-		}
-
-		/**
-		 * @deprecated use {@link #stopSequences(List)} instead.
-		 */
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withStopSequences(List<String> stopSequences) {
-			this.options.setStopSequences(stopSequences);
-			return this;
-		}
-
-		/**
-		 * @deprecated use {@link #temperature(Double)} instead.
-		 */
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withTemperature(Double temperature) {
-			this.options.setTemperature(temperature);
-			return this;
-		}
-
-		/**
-		 * @deprecated use {@link #topP(Double)} instead.
-		 */
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withTopP(Double topP) {
-			this.options.setTopP(topP);
-			return this;
-		}
-
-		/**
-		 * @deprecated use {@link #topK(Float)} instead.
-		 */
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withTopK(Float topK) {
-			this.options.setTopK(topK);
-			return this;
-		}
-
-		/**
-		 * @deprecated use {@link #candidateCount(Integer)} instead.
-		 */
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withCandidateCount(Integer candidateCount) {
-			this.options.setCandidateCount(candidateCount);
-			return this;
-		}
-
-		/**
-		 * @deprecated use {@link #maxOutputTokens(Integer)} instead.
-		 */
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withMaxOutputTokens(Integer maxOutputTokens) {
-			this.options.setMaxOutputTokens(maxOutputTokens);
-			return this;
-		}
-
-		/**
-		 * @deprecated use {@link #model(String)} instead.
-		 */
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withModel(String modelName) {
-			this.options.setModel(modelName);
-			return this;
-		}
-
-		/**
-		 * @deprecated use {@link #model(ChatModel)} instead.
-		 */
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withModel(ChatModel model) {
-			this.options.setModel(model.getValue());
-			return this;
-		}
-
-		/**
-		 * @deprecated use {@link #responseMimeType(String)} instead.
-		 */
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withResponseMimeType(String mimeType) {
-			Assert.notNull(mimeType, "mimeType must not be null");
-			this.options.setResponseMimeType(mimeType);
-			return this;
-		}
-
-		/**
-		 * @deprecated use {@link #functionCallbacks(List)} instead.
-		 */
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withFunctionCallbacks(List<FunctionCallback> functionCallbacks) {
-			this.options.functionCallbacks = functionCallbacks;
-			return this;
-		}
-
-		/**
-		 * @deprecated use {@link #functions(Set)} instead.
-		 */
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withFunctions(Set<String> functionNames) {
-			Assert.notNull(functionNames, "Function names must not be null");
-			this.options.functions = functionNames;
-			return this;
-		}
-
-		/**
-		 * @deprecated use {@link #function(String)} instead.
-		 */
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withFunction(String functionName) {
-			Assert.hasText(functionName, "Function name must not be empty");
-			this.options.functions.add(functionName);
-			return this;
-		}
-
-		/**
-		 * @deprecated use {@link #googleSearchRetrieval(boolean)} instead.
-		 */
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withGoogleSearchRetrieval(boolean googleSearch) {
-			this.options.googleSearchRetrieval = googleSearch;
-			return this;
-		}
-
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withSafetySettings(List<VertexAiGeminiSafetySetting> safetySettings) {
-			Assert.notNull(safetySettings, "safetySettings must not be null");
-			this.options.safetySettings = safetySettings;
-			return this;
-		}
-
-		/**
-		 * @deprecated use {@link #proxyToolCalls(boolean)} instead.
-		 */
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withProxyToolCalls(boolean proxyToolCalls) {
-			this.options.proxyToolCalls = proxyToolCalls;
-			return this;
-		}
-
-		/**
-		 * @deprecated use {@link #toolContext(Map)} instead.
-		 */
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withToolContext(Map<String, Object> toolContext) {
 			if (this.options.toolContext == null) {
 				this.options.toolContext = toolContext;
 			}

@@ -131,7 +131,7 @@ public class Neo4jVectorStoreObservationIT {
 			observationRegistry.clear();
 
 			List<Document> results = vectorStore
-				.similaritySearch(SearchRequest.query("What is Great Depression").withTopK(1));
+				.similaritySearch(SearchRequest.builder().query("What is Great Depression").topK(1).build());
 
 			assertThat(results).isNotEmpty();
 
@@ -178,9 +178,7 @@ public class Neo4jVectorStoreObservationIT {
 		public VectorStore vectorStore(Driver driver, EmbeddingModel embeddingModel,
 				ObservationRegistry observationRegistry) {
 
-			return Neo4jVectorStore.builder()
-				.driver(driver)
-				.embeddingModel(embeddingModel)
+			return Neo4jVectorStore.builder(driver, embeddingModel)
 				.initializeSchema(true)
 				.observationRegistry(observationRegistry)
 				.customObservationConvention(null)

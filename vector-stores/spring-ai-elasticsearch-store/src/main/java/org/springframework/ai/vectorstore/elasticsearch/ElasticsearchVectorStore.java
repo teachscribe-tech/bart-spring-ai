@@ -1,5 +1,5 @@
 /*
- * Copyright 2023-2024 the original author or authors.
+ * Copyright 2023-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,7 +34,6 @@ import co.elastic.clients.transport.Version;
 import co.elastic.clients.transport.rest_client.RestClientTransport;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.micrometer.observation.ObservationRegistry;
 import org.elasticsearch.client.RestClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,7 +53,6 @@ import org.springframework.ai.vectorstore.filter.Filter;
 import org.springframework.ai.vectorstore.filter.FilterExpressionConverter;
 import org.springframework.ai.vectorstore.observation.AbstractObservationVectorStore;
 import org.springframework.ai.vectorstore.observation.VectorStoreObservationContext;
-import org.springframework.ai.vectorstore.observation.VectorStoreObservationConvention;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.util.Assert;
 
@@ -83,9 +81,7 @@ import org.springframework.util.Assert;
  * Basic usage example:
  * </p>
  * <pre>{@code
- * ElasticsearchVectorStore vectorStore = ElasticsearchVectorStore.builder()
- *     .restClient(restClient)
- *     .embeddingModel(embeddingModel)
+ * ElasticsearchVectorStore vectorStore = ElasticsearchVectorStore.builder(restClient, embeddingModel)
  *     .initializeSchema(true)
  *     .build();
  *
@@ -113,9 +109,7 @@ import org.springframework.util.Assert;
  * options.setSimilarity(SimilarityFunction.dot_product);
  * options.setDimensions(1536);
  *
- * ElasticsearchVectorStore vectorStore = ElasticsearchVectorStore.builder()
- *     .restClient(restClient)
- *     .embeddingModel(embeddingModel)
+ * ElasticsearchVectorStore vectorStore = ElasticsearchVectorStore.builder(restClient, embeddingModel)
  *     .options(options)
  *     .initializeSchema(true)
  *     .batchingStrategy(new TokenCountBatchingStrategy())
@@ -156,7 +150,7 @@ public class ElasticsearchVectorStore extends AbstractObservationVectorStore imp
 
 	private static final Logger logger = LoggerFactory.getLogger(ElasticsearchVectorStore.class);
 
-	private static Map<SimilarityFunction, VectorStoreSimilarityMetric> SIMILARITY_TYPE_MAPPING = Map.of(
+	private static final Map<SimilarityFunction, VectorStoreSimilarityMetric> SIMILARITY_TYPE_MAPPING = Map.of(
 			SimilarityFunction.cosine, VectorStoreSimilarityMetric.COSINE, SimilarityFunction.l2_norm,
 			VectorStoreSimilarityMetric.EUCLIDEAN, SimilarityFunction.dot_product, VectorStoreSimilarityMetric.DOT);
 
@@ -168,35 +162,7 @@ public class ElasticsearchVectorStore extends AbstractObservationVectorStore imp
 
 	private final boolean initializeSchema;
 
-	private final BatchingStrategy batchingStrategy;
-
-	@Deprecated(since = "1.0.0-M5", forRemoval = true)
-	public ElasticsearchVectorStore(RestClient restClient, EmbeddingModel embeddingModel, boolean initializeSchema) {
-		this(new ElasticsearchVectorStoreOptions(), restClient, embeddingModel, initializeSchema);
-	}
-
-	@Deprecated(since = "1.0.0-M5", forRemoval = true)
-	public ElasticsearchVectorStore(ElasticsearchVectorStoreOptions options, RestClient restClient,
-			EmbeddingModel embeddingModel, boolean initializeSchema) {
-		this(options, restClient, embeddingModel, initializeSchema, ObservationRegistry.NOOP, null,
-				new TokenCountBatchingStrategy());
-	}
-
-	@Deprecated(since = "1.0.0-M5", forRemoval = true)
-	public ElasticsearchVectorStore(ElasticsearchVectorStoreOptions options, RestClient restClient,
-			EmbeddingModel embeddingModel, boolean initializeSchema, ObservationRegistry observationRegistry,
-			VectorStoreObservationConvention customObservationConvention, BatchingStrategy batchingStrategy) {
-
-		this(builder().restClient(restClient)
-			.options(options)
-			.embeddingModel(embeddingModel)
-			.initializeSchema(initializeSchema)
-			.observationRegistry(observationRegistry)
-			.customObservationConvention(customObservationConvention)
-			.batchingStrategy(batchingStrategy));
-	}
-
-	protected ElasticsearchVectorStore(ElasticsearchBuilder builder) {
+	protected ElasticsearchVectorStore(Builder builder) {
 		super(builder);
 
 		Assert.notNull(builder.restClient, "RestClient must not be null");
@@ -204,7 +170,6 @@ public class ElasticsearchVectorStore extends AbstractObservationVectorStore imp
 		this.initializeSchema = builder.initializeSchema;
 		this.options = builder.options;
 		this.filterExpressionConverter = builder.filterExpressionConverter;
-		this.batchingStrategy = builder.batchingStrategy;
 
 		String version = Version.VERSION == null ? "Unknown" : Version.VERSION.toString();
 		this.elasticsearchClient = new ElasticsearchClient(new RestClientTransport(builder.restClient,
@@ -226,7 +191,7 @@ public class ElasticsearchVectorStore extends AbstractObservationVectorStore imp
 				this.batchingStrategy);
 
 		for (Document document : documents) {
-			ElasticSearchDocument doc = new ElasticSearchDocument(document.getId(), document.getContent(),
+			ElasticSearchDocument doc = new ElasticSearchDocument(document.getId(), document.getText(),
 					document.getMetadata(), embeddings.get(documents.indexOf(document)));
 			bulkRequestBuilder.operations(
 					op -> op.index(idx -> idx.index(this.options.getIndexName()).id(document.getId()).document(doc)));
@@ -362,9 +327,9 @@ public class ElasticsearchVectorStore extends AbstractObservationVectorStore imp
 	@Override
 	public VectorStoreObservationContext.Builder createObservationContextBuilder(String operationName) {
 		return VectorStoreObservationContext.builder(VectorStoreProvider.ELASTICSEARCH.value(), operationName)
-			.withCollectionName(this.options.getIndexName())
-			.withDimensions(this.embeddingModel.dimensions())
-			.withSimilarityMetric(getSimilarityMetric());
+			.collectionName(this.options.getIndexName())
+			.dimensions(this.embeddingModel.dimensions())
+			.similarityMetric(getSimilarityMetric());
 	}
 
 	private String getSimilarityMetric() {
@@ -372,6 +337,14 @@ public class ElasticsearchVectorStore extends AbstractObservationVectorStore imp
 			return this.options.getSimilarity().name();
 		}
 		return SIMILARITY_TYPE_MAPPING.get(this.options.getSimilarity()).value();
+	}
+
+	/**
+	 * Creates a new builder instance for ElasticsearchVectorStore.
+	 * @return a new ElasticsearchBuilder instance
+	 */
+	public static Builder builder(RestClient restClient, EmbeddingModel embeddingModel) {
+		return new Builder(restClient, embeddingModel);
 	}
 
 	/**
@@ -385,36 +358,25 @@ public class ElasticsearchVectorStore extends AbstractObservationVectorStore imp
 	public record ElasticSearchDocument(String id, String content, Map<String, Object> metadata, float[] embedding) {
 	}
 
-	/**
-	 * Creates a new builder instance for ElasticsearchVectorStore.
-	 * @return a new ElasticsearchBuilder instance
-	 */
-	public static ElasticsearchBuilder builder() {
-		return new ElasticsearchBuilder();
-	}
+	public static class Builder extends AbstractVectorStoreBuilder<Builder> {
 
-	public static class ElasticsearchBuilder extends AbstractVectorStoreBuilder<ElasticsearchBuilder> {
-
-		private RestClient restClient;
+		private final RestClient restClient;
 
 		private ElasticsearchVectorStoreOptions options = new ElasticsearchVectorStoreOptions();
 
 		private boolean initializeSchema = false;
-
-		private BatchingStrategy batchingStrategy = new TokenCountBatchingStrategy();
 
 		private FilterExpressionConverter filterExpressionConverter = new ElasticsearchAiSearchFilterExpressionConverter();
 
 		/**
 		 * Sets the Elasticsearch REST client.
 		 * @param restClient the Elasticsearch REST client
-		 * @return the builder instance
-		 * @throws IllegalArgumentException if restClient is null
+		 * @param embeddingModel the Embedding Model to be used
 		 */
-		public ElasticsearchBuilder restClient(RestClient restClient) {
+		public Builder(RestClient restClient, EmbeddingModel embeddingModel) {
+			super(embeddingModel);
 			Assert.notNull(restClient, "RestClient must not be null");
 			this.restClient = restClient;
-			return this;
 		}
 
 		/**
@@ -423,7 +385,7 @@ public class ElasticsearchVectorStore extends AbstractObservationVectorStore imp
 		 * @return the builder instance
 		 * @throws IllegalArgumentException if options is null
 		 */
-		public ElasticsearchBuilder options(ElasticsearchVectorStoreOptions options) {
+		public Builder options(ElasticsearchVectorStoreOptions options) {
 			Assert.notNull(options, "options must not be null");
 			this.options = options;
 			return this;
@@ -434,20 +396,8 @@ public class ElasticsearchVectorStore extends AbstractObservationVectorStore imp
 		 * @param initializeSchema true to initialize schema, false otherwise
 		 * @return the builder instance
 		 */
-		public ElasticsearchBuilder initializeSchema(boolean initializeSchema) {
+		public Builder initializeSchema(boolean initializeSchema) {
 			this.initializeSchema = initializeSchema;
-			return this;
-		}
-
-		/**
-		 * Sets the batching strategy for vector operations.
-		 * @param batchingStrategy the batching strategy to use
-		 * @return the builder instance
-		 * @throws IllegalArgumentException if batchingStrategy is null
-		 */
-		public ElasticsearchBuilder batchingStrategy(BatchingStrategy batchingStrategy) {
-			Assert.notNull(batchingStrategy, "batchingStrategy must not be null");
-			this.batchingStrategy = batchingStrategy;
 			return this;
 		}
 
@@ -457,7 +407,7 @@ public class ElasticsearchVectorStore extends AbstractObservationVectorStore imp
 		 * @return the builder instance
 		 * @throws IllegalArgumentException if converter is null
 		 */
-		public ElasticsearchBuilder filterExpressionConverter(FilterExpressionConverter converter) {
+		public Builder filterExpressionConverter(FilterExpressionConverter converter) {
 			Assert.notNull(converter, "filterExpressionConverter must not be null");
 			this.filterExpressionConverter = converter;
 			return this;
@@ -470,7 +420,6 @@ public class ElasticsearchVectorStore extends AbstractObservationVectorStore imp
 		 */
 		@Override
 		public ElasticsearchVectorStore build() {
-			validate();
 			return new ElasticsearchVectorStore(this);
 		}
 

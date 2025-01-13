@@ -1,5 +1,5 @@
 /*
- * Copyright 2023-2024 the original author or authors.
+ * Copyright 2023-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,9 +20,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Predicate;
 
-import io.micrometer.observation.ObservationRegistry;
 import org.neo4j.cypherdsl.support.schema_name.SchemaNames;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.SessionConfig;
@@ -41,7 +39,6 @@ import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.neo4j.filter.Neo4jVectorFilterExpressionConverter;
 import org.springframework.ai.vectorstore.observation.AbstractObservationVectorStore;
 import org.springframework.ai.vectorstore.observation.VectorStoreObservationContext;
-import org.springframework.ai.vectorstore.observation.VectorStoreObservationConvention;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.util.Assert;
 import org.springframework.util.StringUtils;
@@ -72,9 +69,7 @@ import org.springframework.util.StringUtils;
  * Basic usage example:
  * </p>
  * <pre>{@code
- * Neo4jVectorStore vectorStore = Neo4jVectorStore.builder()
- *     .driver(driver)
- *     .embeddingModel(embeddingModel)
+ * Neo4jVectorStore vectorStore = Neo4jVectorStore.builder(driver, embeddingModel)
  *     .initializeSchema(true)
  *     .build();
  *
@@ -97,9 +92,7 @@ import org.springframework.util.StringUtils;
  * Advanced configuration example:
  * </p>
  * <pre>{@code
- * Neo4jVectorStore vectorStore = Neo4jVectorStore.builder()
- *     .driver(driver)
- *     .embeddingModel(embeddingModel)
+ * Neo4jVectorStore vectorStore = Neo4jVectorStore.builder(driver, embeddingModel)
  *     .databaseName("neo4j")
  *     .distanceType(Neo4jDistanceType.COSINE)
  *     .dimensions(1536)
@@ -154,7 +147,7 @@ public class Neo4jVectorStore extends AbstractObservationVectorStore implements 
 
 	public static final String DEFAULT_CONSTRAINT_NAME = DEFAULT_LABEL + "_unique_idx";
 
-	private static Map<Neo4jDistanceType, VectorStoreSimilarityMetric> SIMILARITY_TYPE_MAPPING = Map.of(
+	private static final Map<Neo4jDistanceType, VectorStoreSimilarityMetric> SIMILARITY_TYPE_MAPPING = Map.of(
 			Neo4jDistanceType.COSINE, VectorStoreSimilarityMetric.COSINE, Neo4jDistanceType.EUCLIDEAN,
 			VectorStoreSimilarityMetric.EUCLIDEAN);
 
@@ -182,37 +175,7 @@ public class Neo4jVectorStore extends AbstractObservationVectorStore implements 
 
 	private final boolean initializeSchema;
 
-	private final BatchingStrategy batchingStrategy;
-
-	@Deprecated(since = "1.0.0-M5", forRemoval = true)
-	public Neo4jVectorStore(Driver driver, EmbeddingModel embeddingModel, Neo4jVectorStoreConfig config,
-			boolean initializeSchema) {
-		this(driver, embeddingModel, config, initializeSchema, ObservationRegistry.NOOP, null,
-				new TokenCountBatchingStrategy());
-	}
-
-	@Deprecated(since = "1.0.0-M5", forRemoval = true)
-	public Neo4jVectorStore(Driver driver, EmbeddingModel embeddingModel, Neo4jVectorStoreConfig config,
-			boolean initializeSchema, ObservationRegistry observationRegistry,
-			VectorStoreObservationConvention customObservationConvention, BatchingStrategy batchingStrategy) {
-
-		this(builder().driver(driver)
-			.embeddingModel(embeddingModel)
-			.sessionConfig(config.sessionConfig)
-			.embeddingDimension(config.embeddingDimension)
-			.distanceType(config.distanceType)
-			.embeddingProperty(config.embeddingProperty)
-			.label(config.label)
-			.indexName(config.indexName)
-			.idProperty(config.idProperty)
-			.constraintName(config.constraintName)
-			.initializeSchema(initializeSchema)
-			.observationRegistry(observationRegistry)
-			.customObservationConvention(customObservationConvention)
-			.batchingStrategy(batchingStrategy));
-	}
-
-	protected Neo4jVectorStore(Neo4jBuilder builder) {
+	protected Neo4jVectorStore(Builder builder) {
 		super(builder);
 
 		Assert.notNull(builder.driver, "Neo4j driver must not be null");
@@ -228,7 +191,6 @@ public class Neo4jVectorStore extends AbstractObservationVectorStore implements 
 		this.idProperty = SchemaNames.sanitize(builder.idProperty).orElseThrow();
 		this.constraintName = SchemaNames.sanitize(builder.constraintName).orElseThrow();
 		this.initializeSchema = builder.initializeSchema;
-		this.batchingStrategy = builder.batchingStrategy;
 	}
 
 	@Override
@@ -341,7 +303,7 @@ public class Neo4jVectorStore extends AbstractObservationVectorStore implements 
 		row.put("id", document.getId());
 
 		var properties = new HashMap<String, Object>();
-		properties.put("text", document.getContent());
+		properties.put("text", document.getText());
 
 		document.getMetadata().forEach((k, v) -> properties.put("metadata." + k, Values.value(v)));
 		row.put("properties", properties);
@@ -373,9 +335,9 @@ public class Neo4jVectorStore extends AbstractObservationVectorStore implements 
 	public VectorStoreObservationContext.Builder createObservationContextBuilder(String operationName) {
 
 		return VectorStoreObservationContext.builder(VectorStoreProvider.NEO4J.value(), operationName)
-			.withCollectionName(this.indexName)
-			.withDimensions(this.embeddingModel.dimensions())
-			.withSimilarityMetric(getSimilarityMetric());
+			.collectionName(this.indexName)
+			.dimensions(this.embeddingModel.dimensions())
+			.similarityMetric(getSimilarityMetric());
 	}
 
 	private String getSimilarityMetric() {
@@ -400,13 +362,13 @@ public class Neo4jVectorStore extends AbstractObservationVectorStore implements 
 
 	}
 
-	public static Neo4jBuilder builder() {
-		return new Neo4jBuilder();
+	public static Builder builder(Driver driver, EmbeddingModel embeddingModel) {
+		return new Builder(driver, embeddingModel);
 	}
 
-	public static class Neo4jBuilder extends AbstractVectorStoreBuilder<Neo4jBuilder> {
+	public static class Builder extends AbstractVectorStoreBuilder<Builder> {
 
-		private Driver driver;
+		private final Driver driver;
 
 		private SessionConfig sessionConfig = SessionConfig.defaultConfig();
 
@@ -426,12 +388,10 @@ public class Neo4jVectorStore extends AbstractObservationVectorStore implements 
 
 		private boolean initializeSchema = false;
 
-		private BatchingStrategy batchingStrategy = new TokenCountBatchingStrategy();
-
-		public Neo4jBuilder driver(Driver driver) {
+		private Builder(Driver driver, EmbeddingModel embeddingModel) {
+			super(embeddingModel);
 			Assert.notNull(driver, "Neo4j driver must not be null");
 			this.driver = driver;
-			return this;
 		}
 
 		/**
@@ -440,7 +400,7 @@ public class Neo4jVectorStore extends AbstractObservationVectorStore implements 
 		 * @param databaseName the database name to use
 		 * @return the builder instance
 		 */
-		public Neo4jBuilder databaseName(String databaseName) {
+		public Builder databaseName(String databaseName) {
 			if (StringUtils.hasText(databaseName)) {
 				this.sessionConfig = SessionConfig.forDatabase(databaseName);
 			}
@@ -452,7 +412,7 @@ public class Neo4jVectorStore extends AbstractObservationVectorStore implements 
 		 * @param sessionConfig the session configuration to use
 		 * @return the builder instance
 		 */
-		public Neo4jBuilder sessionConfig(SessionConfig sessionConfig) {
+		public Builder sessionConfig(SessionConfig sessionConfig) {
 			this.sessionConfig = sessionConfig;
 			return this;
 		}
@@ -463,7 +423,7 @@ public class Neo4jVectorStore extends AbstractObservationVectorStore implements 
 		 * @return the builder instance
 		 * @throws IllegalArgumentException if dimension is less than 1
 		 */
-		public Neo4jBuilder embeddingDimension(int dimension) {
+		public Builder embeddingDimension(int dimension) {
 			Assert.isTrue(dimension >= 1, "Dimension has to be positive");
 			this.embeddingDimension = dimension;
 			return this;
@@ -475,7 +435,7 @@ public class Neo4jVectorStore extends AbstractObservationVectorStore implements 
 		 * @return the builder instance
 		 * @throws IllegalArgumentException if distanceType is null
 		 */
-		public Neo4jBuilder distanceType(Neo4jDistanceType distanceType) {
+		public Builder distanceType(Neo4jDistanceType distanceType) {
 			Assert.notNull(distanceType, "Distance type may not be null");
 			this.distanceType = distanceType;
 			return this;
@@ -486,7 +446,7 @@ public class Neo4jVectorStore extends AbstractObservationVectorStore implements 
 		 * @param label the label to use
 		 * @return the builder instance
 		 */
-		public Neo4jBuilder label(String label) {
+		public Builder label(String label) {
 			if (StringUtils.hasText(label)) {
 				this.label = label;
 			}
@@ -498,7 +458,7 @@ public class Neo4jVectorStore extends AbstractObservationVectorStore implements 
 		 * @param embeddingProperty the property name to use
 		 * @return the builder instance
 		 */
-		public Neo4jBuilder embeddingProperty(String embeddingProperty) {
+		public Builder embeddingProperty(String embeddingProperty) {
 			if (StringUtils.hasText(embeddingProperty)) {
 				this.embeddingProperty = embeddingProperty;
 			}
@@ -510,7 +470,7 @@ public class Neo4jVectorStore extends AbstractObservationVectorStore implements 
 		 * @param indexName the index name to use
 		 * @return the builder instance
 		 */
-		public Neo4jBuilder indexName(String indexName) {
+		public Builder indexName(String indexName) {
 			if (StringUtils.hasText(indexName)) {
 				this.indexName = indexName;
 			}
@@ -522,7 +482,7 @@ public class Neo4jVectorStore extends AbstractObservationVectorStore implements 
 		 * @param idProperty the property name to use
 		 * @return the builder instance
 		 */
-		public Neo4jBuilder idProperty(String idProperty) {
+		public Builder idProperty(String idProperty) {
 			if (StringUtils.hasText(idProperty)) {
 				this.idProperty = idProperty;
 			}
@@ -534,7 +494,7 @@ public class Neo4jVectorStore extends AbstractObservationVectorStore implements 
 		 * @param constraintName the constraint name to use
 		 * @return the builder instance
 		 */
-		public Neo4jBuilder constraintName(String constraintName) {
+		public Builder constraintName(String constraintName) {
 			if (StringUtils.hasText(constraintName)) {
 				this.constraintName = constraintName;
 			}
@@ -546,230 +506,14 @@ public class Neo4jVectorStore extends AbstractObservationVectorStore implements 
 		 * @param initializeSchema true to initialize schema, false otherwise
 		 * @return the builder instance
 		 */
-		public Neo4jBuilder initializeSchema(boolean initializeSchema) {
+		public Builder initializeSchema(boolean initializeSchema) {
 			this.initializeSchema = initializeSchema;
-			return this;
-		}
-
-		/**
-		 * Sets the batching strategy.
-		 * @param batchingStrategy the strategy to use
-		 * @return the builder instance
-		 * @throws IllegalArgumentException if batchingStrategy is null
-		 */
-		public Neo4jBuilder batchingStrategy(BatchingStrategy batchingStrategy) {
-			Assert.notNull(batchingStrategy, "BatchingStrategy must not be null");
-			this.batchingStrategy = batchingStrategy;
 			return this;
 		}
 
 		@Override
 		public Neo4jVectorStore build() {
-			validate();
 			return new Neo4jVectorStore(this);
-		}
-
-	}
-
-	/**
-	 * Configuration for the Neo4j vector store.
-	 */
-	@Deprecated(since = "1.0.0-M5", forRemoval = true)
-	public static final class Neo4jVectorStoreConfig {
-
-		private final SessionConfig sessionConfig;
-
-		private final int embeddingDimension;
-
-		private final Neo4jDistanceType distanceType;
-
-		private final String embeddingProperty;
-
-		private final String label;
-
-		private final String indexName;
-
-		// needed for similarity search call
-		private final String indexNameNotSanitized;
-
-		private final String idProperty;
-
-		private final String constraintName;
-
-		private Neo4jVectorStoreConfig(Builder builder) {
-
-			this.sessionConfig = Optional.ofNullable(builder.databaseName)
-				.filter(Predicate.not(String::isBlank))
-				.map(SessionConfig::forDatabase)
-				.orElseGet(SessionConfig::defaultConfig);
-			this.embeddingDimension = builder.embeddingDimension;
-			this.distanceType = builder.distanceType;
-			this.embeddingProperty = SchemaNames.sanitize(builder.embeddingProperty).orElseThrow();
-			this.label = SchemaNames.sanitize(builder.label).orElseThrow();
-			this.indexNameNotSanitized = builder.indexName;
-			this.indexName = SchemaNames.sanitize(builder.indexName, true).orElseThrow();
-			this.constraintName = SchemaNames.sanitize(builder.constraintName).orElseThrow();
-			this.idProperty = SchemaNames.sanitize(builder.idProperty).orElseThrow();
-		}
-
-		/**
-		 * Start building a new configuration.
-		 * @return The entry point for creating a new configuration.
-		 */
-		@Deprecated(since = "1.0.0-M5", forRemoval = true)
-		public static Builder builder() {
-			return new Builder();
-		}
-
-		/**
-		 * {@return the default config}
-		 */
-		@Deprecated(since = "1.0.0-M5", forRemoval = true)
-		public static Neo4jVectorStoreConfig defaultConfig() {
-			return builder().build();
-		}
-
-		@Deprecated(since = "1.0.0-M5", forRemoval = true)
-		public static final class Builder {
-
-			private String databaseName;
-
-			private int embeddingDimension = DEFAULT_EMBEDDING_DIMENSION;
-
-			private Neo4jDistanceType distanceType = Neo4jDistanceType.COSINE;
-
-			private String label = DEFAULT_LABEL;
-
-			private String embeddingProperty = DEFAULT_EMBEDDING_PROPERTY;
-
-			private String indexName = DEFAULT_INDEX_NAME;
-
-			private String idProperty = DEFAULT_ID_PROPERTY;
-
-			private String constraintName = DEFAULT_CONSTRAINT_NAME;
-
-			private Builder() {
-			}
-
-			/**
-			 * Configures the Neo4j database name to use. Leave {@literal null} or blank
-			 * to use the default database.
-			 * @param databaseName the database name to use
-			 * @return this builder
-			 */
-			public Builder withDatabaseName(String databaseName) {
-				this.databaseName = databaseName;
-				return this;
-			}
-
-			/**
-			 * Configures the size of the embedding. Defaults to {@literal 1536}, inline
-			 * with OpenAIs embeddings.
-			 * @param newEmbeddingDimension The dimension of the embedding
-			 * @return this builder
-			 */
-			public Builder withEmbeddingDimension(int newEmbeddingDimension) {
-
-				Assert.isTrue(newEmbeddingDimension >= 1, "Dimension has to be positive.");
-
-				this.embeddingDimension = newEmbeddingDimension;
-				return this;
-			}
-
-			/**
-			 * Configures the distance type to store in the index and to use in queries.
-			 * @param newDistanceType The distance type, must not be {@literal null}
-			 * @return this builder
-			 */
-			public Builder withDistanceType(Neo4jDistanceType newDistanceType) {
-
-				Assert.notNull(newDistanceType, "Distance type may not be null");
-
-				this.distanceType = newDistanceType;
-				return this;
-			}
-
-			/**
-			 * Configures the node label to use for storing documents. Defaults to
-			 * {@literal Document}.
-			 * @param newLabel The label used on the nodes representing the document
-			 * @return this builder
-			 */
-			public Builder withLabel(String newLabel) {
-
-				Assert.hasText(newLabel, "Content label may not be null or blank");
-
-				this.label = newLabel;
-				return this;
-			}
-
-			/**
-			 * Configures the property of the node to use for storing embedding. Defaults
-			 * to {@literal embedding}.
-			 * @param newEmbeddingProperty The property of the nodes for storing the
-			 * embedding
-			 * @return this builder
-			 */
-			public Builder withEmbeddingProperty(String newEmbeddingProperty) {
-
-				Assert.hasText(newEmbeddingProperty, "Embedding property may not be null or blank");
-
-				this.embeddingProperty = newEmbeddingProperty;
-				return this;
-			}
-
-			/**
-			 * Configures the vector index to be used. Defaults to
-			 * {@literal spring-ai-document-index}.
-			 * @param newIndexName The name of the index to be used for storing and
-			 * searching data.
-			 * @return this builder
-			 */
-			public Builder withIndexName(String newIndexName) {
-
-				Assert.hasText(newIndexName, "Index name may not be null or blank");
-
-				this.indexName = newIndexName;
-				return this;
-			}
-
-			/**
-			 * Configures the id property to be used. Defaults to {@literal id}.
-			 * @param newIdProperty The name of the id property of the {@link Document}
-			 * entity
-			 * @return this builder
-			 */
-			public Builder withIdProperty(String newIdProperty) {
-
-				Assert.hasText(newIdProperty, "Id property may not be null or blank");
-
-				this.idProperty = newIdProperty;
-				return this;
-			}
-
-			/**
-			 * Configures the constraint name to be used. Defaults to
-			 * {@literal Document_unique_idx}.
-			 * @param newConstraintName The name of the unique constraint for the id
-			 * property.
-			 * @return this builder
-			 */
-			public Builder withConstraintName(String newConstraintName) {
-
-				Assert.hasText(newConstraintName, "Constraint name may not be null or blank");
-
-				this.constraintName = newConstraintName;
-				return this;
-			}
-
-			/**
-			 * {@return the immutable configuration}
-			 */
-			public Neo4jVectorStoreConfig build() {
-
-				return new Neo4jVectorStoreConfig(this);
-			}
-
 		}
 
 	}

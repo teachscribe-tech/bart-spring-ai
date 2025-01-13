@@ -74,7 +74,7 @@ public class Anthropic3ChatOptions implements ChatOptions {
 	private @JsonProperty("anthropic_version") String anthropicVersion;
 	// @formatter:on
 
-	Anthropic3ChatOptions() {
+	public Anthropic3ChatOptions() {
 	}
 
 	/**
@@ -307,60 +307,6 @@ public class Anthropic3ChatOptions implements ChatOptions {
 		 * @return this {@link Builder} instance
 		 */
 		public Builder anthropicVersion(String anthropicVersion) {
-			this.options.setAnthropicVersion(anthropicVersion);
-			return this;
-		}
-
-		/**
-		 * @deprecated use {@link #temperature(Double)} instead.
-		 */
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withTemperature(Double temperature) {
-			this.options.setTemperature(temperature);
-			return this;
-		}
-
-		/**
-		 * @deprecated use {@link #maxTokens(Integer)} instead.
-		 */
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withMaxTokens(Integer maxTokens) {
-			this.options.setMaxTokens(maxTokens);
-			return this;
-		}
-
-		/**
-		 * @deprecated use {@link #topK(Integer)} instead.
-		 */
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withTopK(Integer topK) {
-			this.options.setTopK(topK);
-			return this;
-		}
-
-		/**
-		 * @deprecated use {@link #topP(Double)} instead.
-		 */
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withTopP(Double topP) {
-			this.options.setTopP(topP);
-			return this;
-		}
-
-		/**
-		 * @deprecated use {@link #stopSequences(List)} instead.
-		 */
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withStopSequences(List<String> stopSequences) {
-			this.options.setStopSequences(stopSequences);
-			return this;
-		}
-
-		/**
-		 * @deprecated use {@link #anthropicVersion(String)} instead.
-		 */
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withAnthropicVersion(String anthropicVersion) {
 			this.options.setAnthropicVersion(anthropicVersion);
 			return this;
 		}

@@ -91,8 +91,8 @@ class OpenSearchVectorStoreWithOllamaIT {
 	private static void ensureModelIsPresent(final String model) {
 		final OllamaApi api = new OllamaApi(OLLAMA_LOCAL_URL);
 		final var modelManagementOptions = ModelManagementOptions.builder()
-			.withMaxRetries(DEFAULT_MAX_RETRIES)
-			.withTimeout(DEFAULT_TIMEOUT)
+			.maxRetries(DEFAULT_MAX_RETRIES)
+			.timeout(DEFAULT_TIMEOUT)
 			.build();
 		final var ollamaModelManager = new OllamaModelManager(api, modelManagementOptions);
 		ollamaModelManager.pullModel(model, PullModelStrategy.WHEN_MISSING);
@@ -137,17 +137,17 @@ class OpenSearchVectorStoreWithOllamaIT {
 			vectorStore.add(this.documents);
 
 			Awaitility.await()
-				.until(() -> vectorStore
-					.similaritySearch(SearchRequest.query("Great Depression").withTopK(1).withSimilarityThreshold(0)),
+				.until(() -> vectorStore.similaritySearch(
+						SearchRequest.builder().query("Great Depression").topK(1).similarityThreshold(0).build()),
 						hasSize(1));
 
-			List<Document> results = vectorStore
-				.similaritySearch(SearchRequest.query("Great Depression").withTopK(1).withSimilarityThreshold(0));
+			List<Document> results = vectorStore.similaritySearch(
+					SearchRequest.builder().query("Great Depression").topK(1).similarityThreshold(0).build());
 
 			assertThat(results).hasSize(1);
 			Document resultDoc = results.get(0);
 			assertThat(resultDoc.getId()).isEqualTo(this.documents.get(2).getId());
-			assertThat(resultDoc.getContent()).contains("The Great Depression (1929–1939) was an economic shock");
+			assertThat(resultDoc.getText()).contains("The Great Depression (1929–1939) was an economic shock");
 			assertThat(resultDoc.getMetadata()).hasSize(2);
 			assertThat(resultDoc.getMetadata()).containsKey("meta2");
 			assertThat(resultDoc.getMetadata()).containsKey("distance");
@@ -156,8 +156,8 @@ class OpenSearchVectorStoreWithOllamaIT {
 			vectorStore.delete(this.documents.stream().map(Document::getId).toList());
 
 			Awaitility.await()
-				.until(() -> vectorStore
-					.similaritySearch(SearchRequest.query("Great Depression").withTopK(1).withSimilarityThreshold(0)),
+				.until(() -> vectorStore.similaritySearch(
+						SearchRequest.builder().query("Great Depression").topK(1).similarityThreshold(0).build()),
 						hasSize(0));
 		});
 	}
@@ -169,13 +169,10 @@ class OpenSearchVectorStoreWithOllamaIT {
 		@Qualifier("vectorStore")
 		public OpenSearchVectorStore vectorStore(EmbeddingModel embeddingModel) {
 			try {
-				return OpenSearchVectorStore.builder()
-					.openSearchClient(new OpenSearchClient(ApacheHttpClient5TransportBuilder
-						.builder(HttpHost.create(opensearchContainer.getHttpHostAddress()))
-						.build()))
-					.embeddingModel(embeddingModel)
-					.initializeSchema(true)
-					.build();
+				OpenSearchClient openSearchClient = new OpenSearchClient(ApacheHttpClient5TransportBuilder
+					.builder(HttpHost.create(opensearchContainer.getHttpHostAddress()))
+					.build());
+				return OpenSearchVectorStore.builder(openSearchClient, embeddingModel).initializeSchema(true).build();
 			}
 			catch (URISyntaxException e) {
 				throw new RuntimeException(e);
@@ -186,12 +183,11 @@ class OpenSearchVectorStoreWithOllamaIT {
 		@Qualifier("anotherVectorStore")
 		public OpenSearchVectorStore anotherVectorStore(EmbeddingModel embeddingModel) {
 			try {
-				return OpenSearchVectorStore.builder()
+				OpenSearchClient openSearchClient = new OpenSearchClient(ApacheHttpClient5TransportBuilder
+					.builder(HttpHost.create(opensearchContainer.getHttpHostAddress()))
+					.build());
+				return OpenSearchVectorStore.builder(openSearchClient, embeddingModel)
 					.index("another_index")
-					.openSearchClient(new OpenSearchClient(ApacheHttpClient5TransportBuilder
-						.builder(HttpHost.create(opensearchContainer.getHttpHostAddress()))
-						.build()))
-					.embeddingModel(embeddingModel)
 					.mappingJson(OpenSearchVectorStore.DEFAULT_MAPPING_EMBEDDING_TYPE_KNN_VECTOR_DIMENSION)
 					.initializeSchema(true)
 					.build();
@@ -204,12 +200,13 @@ class OpenSearchVectorStoreWithOllamaIT {
 		@Bean
 		public EmbeddingModel embeddingModel() {
 			return OllamaEmbeddingModel.builder()
-				.withOllamaApi(new OllamaApi())
-				.withDefaultOptions(OllamaOptions.create()
-					.withModel(OllamaModel.MXBAI_EMBED_LARGE)
-					.withMainGPU(11)
-					.withUseMMap(true)
-					.withNumGPU(1))
+				.ollamaApi(new OllamaApi())
+				.defaultOptions(OllamaOptions.builder()
+					.model(OllamaModel.MXBAI_EMBED_LARGE)
+					.mainGPU(11)
+					.useMMap(true)
+					.numGPU(1)
+					.build())
 				.build();
 		}
 

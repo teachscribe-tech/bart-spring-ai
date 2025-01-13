@@ -1,5 +1,5 @@
 /*
- * Copyright 2023-2024 the original author or authors.
+ * Copyright 2023-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,7 +23,6 @@ import java.util.Map;
 import java.util.Optional;
 
 import com.mongodb.MongoCommandException;
-import io.micrometer.observation.ObservationRegistry;
 
 import org.springframework.ai.document.Document;
 import org.springframework.ai.document.DocumentMetadata;
@@ -37,7 +36,6 @@ import org.springframework.ai.vectorstore.AbstractVectorStoreBuilder;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.observation.AbstractObservationVectorStore;
 import org.springframework.ai.vectorstore.observation.VectorStoreObservationContext;
-import org.springframework.ai.vectorstore.observation.VectorStoreObservationConvention;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.data.mongodb.UncategorizedMongoDbException;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -72,9 +70,7 @@ import org.springframework.util.Assert;
  * Basic usage example:
  * </p>
  * <pre>{@code
- * MongoDBAtlasVectorStore vectorStore = MongoDBAtlasVectorStore.builder()
- *     .mongoTemplate(mongoTemplate)
- *     .embeddingModel(embeddingModel)
+ * MongoDBAtlasVectorStore vectorStore = MongoDBAtlasVectorStore.builder(mongoTemplate, embeddingModel)
  *     .collectionName("vector_store")
  *     .initializeSchema(true)
  *     .build();
@@ -98,9 +94,7 @@ import org.springframework.util.Assert;
  * Advanced configuration example:
  * </p>
  * <pre>{@code
- * MongoDBAtlasVectorStore vectorStore = MongoDBAtlasVectorStore.builder()
- *     .mongoTemplate(mongoTemplate)
- *     .embeddingModel(embeddingModel)
+ * MongoDBAtlasVectorStore vectorStore = MongoDBAtlasVectorStore.builder(mongoTemplate, embeddingModel)
  *     .collectionName("custom_vectors")
  *     .vectorIndexName("custom_vector_index")
  *     .pathName("custom_embedding")
@@ -167,40 +161,7 @@ public class MongoDBAtlasVectorStore extends AbstractObservationVectorStore impl
 
 	private final boolean initializeSchema;
 
-	private final BatchingStrategy batchingStrategy;
-
-	@Deprecated(since = "1.0.0-M5", forRemoval = true)
-	public MongoDBAtlasVectorStore(MongoTemplate mongoTemplate, EmbeddingModel embeddingModel,
-			boolean initializeSchema) {
-		this(mongoTemplate, embeddingModel, MongoDBVectorStoreConfig.defaultConfig(), initializeSchema);
-	}
-
-	@Deprecated(since = "1.0.0-M5", forRemoval = true)
-	public MongoDBAtlasVectorStore(MongoTemplate mongoTemplate, EmbeddingModel embeddingModel,
-			MongoDBVectorStoreConfig config, boolean initializeSchema) {
-		this(mongoTemplate, embeddingModel, config, initializeSchema, ObservationRegistry.NOOP, null,
-				new TokenCountBatchingStrategy());
-	}
-
-	@Deprecated(since = "1.0.0-M5", forRemoval = true)
-	public MongoDBAtlasVectorStore(MongoTemplate mongoTemplate, EmbeddingModel embeddingModel,
-			MongoDBVectorStoreConfig config, boolean initializeSchema, ObservationRegistry observationRegistry,
-			VectorStoreObservationConvention customObservationConvention, BatchingStrategy batchingStrategy) {
-
-		this(builder().mongoTemplate(mongoTemplate)
-			.embeddingModel(embeddingModel)
-			.collectionName(config.collectionName)
-			.vectorIndexName(config.vectorIndexName)
-			.pathName(config.pathName)
-			.numCandidates(config.numCandidates)
-			.metadataFieldsToFilter(config.metadataFieldsToFilter)
-			.initializeSchema(initializeSchema)
-			.observationRegistry(observationRegistry)
-			.customObservationConvention(customObservationConvention)
-			.batchingStrategy(batchingStrategy));
-	}
-
-	protected MongoDBAtlasVectorStore(MongoDBBuilder builder) {
+	protected MongoDBAtlasVectorStore(Builder builder) {
 		super(builder);
 
 		Assert.notNull(builder.mongoTemplate, "MongoTemplate must not be null");
@@ -213,7 +174,6 @@ public class MongoDBAtlasVectorStore extends AbstractObservationVectorStore impl
 		this.metadataFieldsToFilter = builder.metadataFieldsToFilter;
 		this.filterExpressionConverter = builder.filterExpressionConverter;
 		this.initializeSchema = builder.initializeSchema;
-		this.batchingStrategy = builder.batchingStrategy;
 	}
 
 	@Override
@@ -296,7 +256,7 @@ public class MongoDBAtlasVectorStore extends AbstractObservationVectorStore impl
 		List<float[]> embeddings = this.embeddingModel.embed(documents, EmbeddingOptionsBuilder.builder().build(),
 				this.batchingStrategy);
 		for (Document document : documents) {
-			MongoDBDocument mdbDocument = new MongoDBDocument(document.getId(), document.getContent(),
+			MongoDBDocument mdbDocument = new MongoDBDocument(document.getId(), document.getText(),
 					document.getMetadata(), embeddings.get(documents.indexOf(document)));
 			this.mongoTemplate.save(mdbDocument, this.collectionName);
 		}
@@ -314,7 +274,7 @@ public class MongoDBAtlasVectorStore extends AbstractObservationVectorStore impl
 
 	@Override
 	public List<Document> similaritySearch(String query) {
-		return similaritySearch(SearchRequest.query(query));
+		return similaritySearch(SearchRequest.builder().query(query).build());
 	}
 
 	@Override
@@ -345,22 +305,22 @@ public class MongoDBAtlasVectorStore extends AbstractObservationVectorStore impl
 	public VectorStoreObservationContext.Builder createObservationContextBuilder(String operationName) {
 
 		return VectorStoreObservationContext.builder(VectorStoreProvider.MONGODB.value(), operationName)
-			.withCollectionName(this.collectionName)
-			.withDimensions(this.embeddingModel.dimensions())
-			.withFieldName(this.pathName);
+			.collectionName(this.collectionName)
+			.dimensions(this.embeddingModel.dimensions())
+			.fieldName(this.pathName);
 	}
 
 	/**
 	 * Creates a new builder instance for MongoDBAtlasVectorStore.
 	 * @return a new MongoDBBuilder instance
 	 */
-	public static MongoDBBuilder builder() {
-		return new MongoDBBuilder();
+	public static Builder builder(MongoTemplate mongoTemplate, EmbeddingModel embeddingModel) {
+		return new Builder(mongoTemplate, embeddingModel);
 	}
 
-	public static class MongoDBBuilder extends AbstractVectorStoreBuilder<MongoDBBuilder> {
+	public static class Builder extends AbstractVectorStoreBuilder<Builder> {
 
-		private MongoTemplate mongoTemplate;
+		private final MongoTemplate mongoTemplate;
 
 		private String collectionName = DEFAULT_VECTOR_COLLECTION_NAME;
 
@@ -374,17 +334,15 @@ public class MongoDBAtlasVectorStore extends AbstractObservationVectorStore impl
 
 		private boolean initializeSchema = false;
 
-		private BatchingStrategy batchingStrategy = new TokenCountBatchingStrategy();
-
 		private MongoDBAtlasFilterExpressionConverter filterExpressionConverter = new MongoDBAtlasFilterExpressionConverter();
 
 		/**
 		 * @throws IllegalArgumentException if mongoTemplate is null
 		 */
-		public MongoDBBuilder mongoTemplate(MongoTemplate mongoTemplate) {
+		private Builder(MongoTemplate mongoTemplate, EmbeddingModel embeddingModel) {
+			super(embeddingModel);
 			Assert.notNull(mongoTemplate, "MongoTemplate must not be null");
 			this.mongoTemplate = mongoTemplate;
-			return this;
 		}
 
 		/**
@@ -394,7 +352,7 @@ public class MongoDBAtlasVectorStore extends AbstractObservationVectorStore impl
 		 * @return the builder instance
 		 * @throws IllegalArgumentException if collectionName is null or empty
 		 */
-		public MongoDBBuilder collectionName(String collectionName) {
+		public Builder collectionName(String collectionName) {
 			Assert.hasText(collectionName, "Collection Name must not be null or empty");
 			this.collectionName = collectionName;
 			return this;
@@ -407,7 +365,7 @@ public class MongoDBAtlasVectorStore extends AbstractObservationVectorStore impl
 		 * @return the builder instance
 		 * @throws IllegalArgumentException if vectorIndexName is null or empty
 		 */
-		public MongoDBBuilder vectorIndexName(String vectorIndexName) {
+		public Builder vectorIndexName(String vectorIndexName) {
 			Assert.hasText(vectorIndexName, "Vector Index Name must not be null or empty");
 			this.vectorIndexName = vectorIndexName;
 			return this;
@@ -420,7 +378,7 @@ public class MongoDBAtlasVectorStore extends AbstractObservationVectorStore impl
 		 * @return the builder instance
 		 * @throws IllegalArgumentException if pathName is null or empty
 		 */
-		public MongoDBBuilder pathName(String pathName) {
+		public Builder pathName(String pathName) {
 			Assert.hasText(pathName, "Path Name must not be null or empty");
 			this.pathName = pathName;
 			return this;
@@ -431,7 +389,7 @@ public class MongoDBAtlasVectorStore extends AbstractObservationVectorStore impl
 		 * @param numCandidates the number of candidates
 		 * @return the builder instance
 		 */
-		public MongoDBBuilder numCandidates(int numCandidates) {
+		public Builder numCandidates(int numCandidates) {
 			this.numCandidates = numCandidates;
 			return this;
 		}
@@ -442,7 +400,7 @@ public class MongoDBAtlasVectorStore extends AbstractObservationVectorStore impl
 		 * @return the builder instance
 		 * @throws IllegalArgumentException if metadataFieldsToFilter is null or empty
 		 */
-		public MongoDBBuilder metadataFieldsToFilter(List<String> metadataFieldsToFilter) {
+		public Builder metadataFieldsToFilter(List<String> metadataFieldsToFilter) {
 			Assert.notEmpty(metadataFieldsToFilter, "Fields list must not be empty");
 			this.metadataFieldsToFilter = metadataFieldsToFilter;
 			return this;
@@ -453,20 +411,8 @@ public class MongoDBAtlasVectorStore extends AbstractObservationVectorStore impl
 		 * @param initializeSchema true to initialize schema, false otherwise
 		 * @return the builder instance
 		 */
-		public MongoDBBuilder initializeSchema(boolean initializeSchema) {
+		public Builder initializeSchema(boolean initializeSchema) {
 			this.initializeSchema = initializeSchema;
-			return this;
-		}
-
-		/**
-		 * Sets the batching strategy for vector operations.
-		 * @param batchingStrategy the batching strategy to use
-		 * @return the builder instance
-		 * @throws IllegalArgumentException if batchingStrategy is null
-		 */
-		public MongoDBBuilder batchingStrategy(BatchingStrategy batchingStrategy) {
-			Assert.notNull(batchingStrategy, "batchingStrategy must not be null");
-			this.batchingStrategy = batchingStrategy;
 			return this;
 		}
 
@@ -476,7 +422,7 @@ public class MongoDBAtlasVectorStore extends AbstractObservationVectorStore impl
 		 * @return the builder instance
 		 * @throws IllegalArgumentException if converter is null
 		 */
-		public MongoDBBuilder filterExpressionConverter(MongoDBAtlasFilterExpressionConverter converter) {
+		public Builder filterExpressionConverter(MongoDBAtlasFilterExpressionConverter converter) {
 			Assert.notNull(converter, "filterExpressionConverter must not be null");
 			this.filterExpressionConverter = converter;
 			return this;
@@ -489,105 +435,7 @@ public class MongoDBAtlasVectorStore extends AbstractObservationVectorStore impl
 		 */
 		@Override
 		public MongoDBAtlasVectorStore build() {
-			validate();
 			return new MongoDBAtlasVectorStore(this);
-		}
-
-	}
-
-	@Deprecated(since = "1.0.0-M5", forRemoval = true)
-	public static final class MongoDBVectorStoreConfig {
-
-		private final String collectionName;
-
-		private final String vectorIndexName;
-
-		private final String pathName;
-
-		private final List<String> metadataFieldsToFilter;
-
-		private final int numCandidates;
-
-		private MongoDBVectorStoreConfig(Builder builder) {
-			this.collectionName = builder.collectionName;
-			this.vectorIndexName = builder.vectorIndexName;
-			this.pathName = builder.pathName;
-			this.numCandidates = builder.numCandidates;
-			this.metadataFieldsToFilter = builder.metadataFieldsToFilter;
-		}
-
-		@Deprecated(since = "1.0.0-M5", forRemoval = true)
-		public static Builder builder() {
-			return new Builder();
-		}
-
-		@Deprecated(since = "1.0.0-M5", forRemoval = true)
-		public static MongoDBVectorStoreConfig defaultConfig() {
-			return builder().build();
-		}
-
-		@Deprecated(since = "1.0.0-M5", forRemoval = true)
-		public static final class Builder {
-
-			private String collectionName = DEFAULT_VECTOR_COLLECTION_NAME;
-
-			private String vectorIndexName = DEFAULT_VECTOR_INDEX_NAME;
-
-			private String pathName = DEFAULT_PATH_NAME;
-
-			private int numCandidates = DEFAULT_NUM_CANDIDATES;
-
-			private List<String> metadataFieldsToFilter = Collections.emptyList();
-
-			private Builder() {
-			}
-
-			/**
-			 * Configures the collection to use This must match the name of the collection
-			 * for the Vector Search Index in Atlas
-			 * @param collectionName
-			 * @return this builder
-			 */
-			public Builder withCollectionName(String collectionName) {
-				Assert.notNull(collectionName, "Collection Name must not be empty");
-				this.collectionName = collectionName;
-				return this;
-			}
-
-			/**
-			 * Configures the vector index name. This must match the name of the Vector
-			 * Search Index Name in Atlas
-			 * @param vectorIndexName
-			 * @return this builder
-			 */
-			public Builder withVectorIndexName(String vectorIndexName) {
-				Assert.notNull(vectorIndexName, "Vector Index Name must not be empty");
-				this.vectorIndexName = vectorIndexName;
-				return this;
-			}
-
-			/**
-			 * Configures the path name. This must match the name of the field indexed for
-			 * the Vector Search Index in Atlas
-			 * @param pathName
-			 * @return this builder
-			 */
-			public Builder withPathName(String pathName) {
-				Assert.notNull(pathName, "Path Name must not be empty");
-				this.pathName = pathName;
-				return this;
-			}
-
-			public Builder withMetadataFieldsToFilter(List<String> metadataFieldsToFilter) {
-				Assert.notEmpty(metadataFieldsToFilter, "Fields list must not be empty");
-				this.metadataFieldsToFilter = metadataFieldsToFilter;
-				return this;
-			}
-
-			public MongoDBVectorStoreConfig build() {
-				return new MongoDBVectorStoreConfig(this);
-			}
-
 		}
 
 	}

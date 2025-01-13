@@ -97,88 +97,105 @@ You can use the following properties in your Spring Boot configuration to custom
 
 === Basic Usage
 
-Create a CassandraVectorStore instance using the builder pattern:
+Create a CassandraVectorStore instance as a Spring Bean:
 
 [source,java]
 ----
 @Bean
 public VectorStore vectorStore(CqlSession session, EmbeddingModel embeddingModel) {
-    return CassandraVectorStore.builder()
+    return CassandraVectorStore.builder(embeddingModel)
         .session(session)
-        .embeddingModel(embeddingModel)
         .keyspace("my_keyspace")
         .table("my_vectors")
         .build();
 }
 ----
 
-[NOTE]
-====
-The default configuration connects to Cassandra at `localhost:9042` and will automatically create a default schema in keyspace `springframework`, table `ai_vector_store`.
-====
-
-[NOTE]
-====
-The Cassandra Java Driver is easiest configured via an `application.conf` file on the classpath. More info https://github.com/apache/cassandra-java-driver/tree/4.x/manual/core/configuration[here].
-====
-
-Then in your main code, create and add some documents:
+Once you have the vector store instance, you can add documents and perform searches:
 
 [source,java]
 ----
-List<Document> documents = List.of(
-    new Document("Spring AI rocks!! Spring AI rocks!! Spring AI rocks!!", 
-        Map.of("country", "UK", "year", 2020)),
-    new Document("The World is Big and Salvation Lurks Around the Corner", 
-        Map.of()),
-    new Document("You walk forward facing the past and you turn back toward the future.", 
-        Map.of("country", "NL", "year", 2023)));
+// Add documents
+vectorStore.add(List.of(
+    new Document("1", "content1", Map.of("key1", "value1")),
+    new Document("2", "content2", Map.of("key2", "value2"))
+));
 
-vectorStore.add(documents);
-----
-
-And retrieve documents similar to a query:
-
-[source,java]
-----
+// Search with filters
 List<Document> results = vectorStore.similaritySearch(
-    SearchRequest.query("Spring").withTopK(5));
-----
-
-You can also limit results based on a similarity threshold:
-
-[source,java]
-----
-List<Document> results = vectorStore.similaritySearch(
-    SearchRequest.query("Spring")
+    SearchRequest.query("search text")
         .withTopK(5)
-        .withSimilarityThreshold(0.5d));
+        .withSimilarityThreshold(0.7f)
+        .withFilterExpression("metadata.key1 == 'value1'")
+);
 ----
 
 === Advanced Configuration
 
-For more complex scenarios, the builder pattern offers extensive configuration options:
+For more complex use cases, you can configure additional settings in your Spring Bean:
 
 [source,java]
 ----
 @Bean
 public VectorStore vectorStore(CqlSession session, EmbeddingModel embeddingModel) {
-    return CassandraVectorStore.builder()
+    return CassandraVectorStore.builder(embeddingModel)
         .session(session)
-        .embeddingModel(embeddingModel)
         .keyspace("my_keyspace")
         .table("my_vectors")
-        .partitionKeys(List.of(new SchemaColumn("id", DataTypes.TEXT)))
-        .clusteringKeys(List.of(new SchemaColumn("timestamp", DataTypes.TIMESTAMP)))
+        // Configure primary keys
+        .partitionKeys(List.of(
+            new SchemaColumn("id", DataTypes.TEXT),
+            new SchemaColumn("category", DataTypes.TEXT)
+        ))
+        .clusteringKeys(List.of(
+            new SchemaColumn("timestamp", DataTypes.TIMESTAMP)
+        ))
+        // Add metadata columns with optional indexing
         .addMetadataColumns(
             new SchemaColumn("category", DataTypes.TEXT, SchemaColumnTags.INDEXED),
             new SchemaColumn("score", DataTypes.DOUBLE)
         )
+        // Customize column names
         .contentColumnName("text")
         .embeddingColumnName("vector")
+        // Performance tuning
         .fixedThreadPoolExecutorSize(32)
+        // Schema management
         .disallowSchemaChanges(false)
+        // Custom batching strategy
         .batchingStrategy(new TokenCountBatchingStrategy())
+        .build();
+}
+----
+
+=== Connection Configuration
+
+There are two ways to configure the connection to Cassandra:
+
+* Using an injected CqlSession (recommended):
+
+[source,java]
+----
+@Bean
+public VectorStore vectorStore(CqlSession session, EmbeddingModel embeddingModel) {
+    return CassandraVectorStore.builder(embeddingModel)
+        .session(session)
+        .keyspace("my_keyspace")
+        .table("my_vectors")
+        .build();
+}
+----
+
+* Using connection details directly in the builder:
+
+[source,java]
+----
+@Bean
+public VectorStore vectorStore(EmbeddingModel embeddingModel) {
+    return CassandraVectorStore.builder(embeddingModel)
+        .contactPoint(new InetSocketAddress("localhost", 9042))
+        .localDatacenter("datacenter1")
+        .keyspace("my_keyspace")
         .build();
 }
 ----
@@ -192,9 +209,9 @@ For example, you can use either the text expression language:
 [source,java]
 ----
 vectorStore.similaritySearch(
-    SearchRequest.query("The World")
-        .withTopK(5)
-        .withFilterExpression("country in ['UK', 'NL'] && year >= 2020"));
+    SearchRequest.builder().query("The World")
+        .topK(5)
+        .filterExpression("country in ['UK', 'NL'] && year >= 2020").build());
 ----
 
 or programmatically using the expression DSL:
@@ -208,9 +225,9 @@ Filter.Expression f = new FilterExpressionBuilder()
     ).build();
 
 vectorStore.similaritySearch(
-    SearchRequest.query("The World")
-        .withTopK(5)
-        .withFilterExpression(f));
+    SearchRequest.builder().query("The World")
+        .topK(5)
+        .filterExpression(f).build());
 ----
 
 The portable filter expressions get automatically converted into link:https://cassandra.apache.org/doc/latest/cassandra/developing/cql/index.html[CQL queries].

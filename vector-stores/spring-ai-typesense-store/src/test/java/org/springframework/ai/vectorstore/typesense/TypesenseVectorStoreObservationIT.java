@@ -124,7 +124,7 @@ public class TypesenseVectorStoreObservationIT {
 			observationRegistry.clear();
 
 			List<Document> results = vectorStore
-				.similaritySearch(SearchRequest.query("What is Great Depression").withTopK(1));
+				.similaritySearch(SearchRequest.builder().query("What is Great Depression").topK(1).build());
 
 			assertThat(results).isNotEmpty();
 
@@ -170,9 +170,7 @@ public class TypesenseVectorStoreObservationIT {
 		public VectorStore vectorStore(Client client, EmbeddingModel embeddingModel,
 				ObservationRegistry observationRegistry) {
 
-			return TypesenseVectorStore.builder()
-				.client(client)
-				.embeddingModel(embeddingModel)
+			return TypesenseVectorStore.builder(client, embeddingModel)
 				.collectionName(TEST_COLLECTION_NAME)
 				.embeddingDimension(embeddingModel.dimensions())
 				.initializeSchema(true)

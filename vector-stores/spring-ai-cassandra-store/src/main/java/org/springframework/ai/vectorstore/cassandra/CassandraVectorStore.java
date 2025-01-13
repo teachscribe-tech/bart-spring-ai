@@ -1,5 +1,5 @@
 /*
- * Copyright 2023-2024 the original author or authors.
+ * Copyright 2023-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -60,7 +60,6 @@ import com.datastax.oss.driver.api.querybuilder.schema.CreateTable;
 import com.datastax.oss.driver.api.querybuilder.schema.CreateTableStart;
 import com.datastax.oss.driver.shaded.guava.common.annotations.VisibleForTesting;
 import com.datastax.oss.driver.shaded.guava.common.base.Preconditions;
-import io.micrometer.observation.ObservationRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -80,7 +79,6 @@ import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.vectorstore.filter.FilterExpressionConverter;
 import org.springframework.ai.vectorstore.observation.AbstractObservationVectorStore;
 import org.springframework.ai.vectorstore.observation.VectorStoreObservationContext;
-import org.springframework.ai.vectorstore.observation.VectorStoreObservationConvention;
 import org.springframework.util.Assert;
 
 /**
@@ -104,9 +102,8 @@ import org.springframework.util.Assert;
  * Basic usage example:
  * </p>
  * <pre>{@code
- * CassandraVectorStore vectorStore = CassandraVectorStore.builder()
+ * CassandraVectorStore vectorStore = CassandraVectorStore.builder(embeddingModel)
  *     .session(cqlSession)
- *     .embeddingModel(embeddingModel)
  *     .keyspace("my_keyspace")
  *     .table("my_vectors")
  *     .build();
@@ -130,9 +127,8 @@ import org.springframework.util.Assert;
  * Advanced configuration example:
  * </p>
  * <pre>{@code
- * CassandraVectorStore vectorStore = CassandraVectorStore.builder()
+ * CassandraVectorStore vectorStore = CassandraVectorStore.builder(embeddingModel)
  *     .session(cqlSession)
- *     .embeddingModel(embeddingModel)
  *     .keyspace("my_keyspace")
  *     .table("my_vectors")
  *     .partitionKeys(List.of(new SchemaColumn("id", DataTypes.TEXT)))
@@ -159,14 +155,13 @@ import org.springframework.util.Assert;
  *
  * When adding documents with the method {@link #add(List<Document>)} it first calls
  * embeddingModel to create the embeddings. This is slow. Configure
- * {@link CassandraVectorStore.CassandraBuilder#fixedThreadPoolExecutorSize(int)}
- * accordingly to improve performance so embeddings are created and the documents are
- * added concurrently. The default concurrency is 16
- * ({@link CassandraVectorStore.CassandraBuilder#DEFAULT_ADD_CONCURRENCY}). Remote
- * transformers probably want higher concurrency, and local transformers may need lower
- * concurrency. This concurrency limit does not need to be higher than the max parallel
- * calls made to the {@link #add(List<Document>)} method multiplied by the list size. This
- * setting can also serve as a protecting throttle against your embedding model.
+ * {@link Builder#fixedThreadPoolExecutorSize(int)} accordingly to improve performance so
+ * embeddings are created and the documents are added concurrently. The default
+ * concurrency is 16 ({@link Builder#DEFAULT_ADD_CONCURRENCY}). Remote transformers
+ * probably want higher concurrency, and local transformers may need lower concurrency.
+ * This concurrency limit does not need to be higher than the max parallel calls made to
+ * the {@link #add(List<Document>)} method multiplied by the list size. This setting can
+ * also serve as a protecting throttle against your embedding model.
  *
  * @author Mick Semb Wever
  * @author Christian Tzolov
@@ -220,8 +215,6 @@ public class CassandraVectorStore extends AbstractObservationVectorStore impleme
 
 	private final boolean closeSessionOnClose;
 
-	private final BatchingStrategy batchingStrategy;
-
 	private final ConcurrentMap<Set<String>, PreparedStatement> addStmts = new ConcurrentHashMap<>();
 
 	private final PreparedStatement deleteStmt;
@@ -230,33 +223,7 @@ public class CassandraVectorStore extends AbstractObservationVectorStore impleme
 
 	private final Similarity similarity;
 
-	// TODO: Remove this flag as the document no longer holds embeddings.
-	@Deprecated(since = "1.0.0-M5", forRemoval = true)
-	private final boolean returnEmbeddings;
-
-	/**
-	 * @deprecated since 1.0.0-M5, use {@link #builder()} instead
-	 */
-	@Deprecated(since = "1.0.0-M5", forRemoval = true)
-	public CassandraVectorStore(CassandraVectorStoreConfig conf, EmbeddingModel embeddingModel) {
-		this(conf, embeddingModel, ObservationRegistry.NOOP, null, new TokenCountBatchingStrategy());
-	}
-
-	/**
-	 * @deprecated since 1.0.0-M5, use {@link #builder()} instead
-	 */
-	@Deprecated(since = "1.0.0-M5", forRemoval = true)
-	public CassandraVectorStore(CassandraVectorStoreConfig conf, EmbeddingModel embeddingModel,
-			ObservationRegistry observationRegistry, VectorStoreObservationConvention customObservationConvention,
-			BatchingStrategy batchingStrategy) {
-		this(builder().session(conf.session)
-			.embeddingModel(embeddingModel)
-			.observationRegistry(observationRegistry)
-			.customObservationConvention(customObservationConvention)
-			.batchingStrategy(batchingStrategy));
-	}
-
-	protected CassandraVectorStore(CassandraBuilder builder) {
+	protected CassandraVectorStore(Builder builder) {
 		super(builder);
 
 		Assert.notNull(builder.session, "Session must not be null");
@@ -268,16 +235,15 @@ public class CassandraVectorStore extends AbstractObservationVectorStore impleme
 		this.primaryKeyTranslator = builder.primaryKeyTranslator;
 		this.executor = Executors.newFixedThreadPool(builder.fixedThreadPoolExecutorSize);
 		this.closeSessionOnClose = builder.closeSessionOnClose;
-		this.batchingStrategy = builder.batchingStrategy;
 
 		ensureSchemaExists(embeddingModel.dimensions());
 		prepareAddStatement(Set.of());
 		this.deleteStmt = prepareDeleteStatement();
 
-		TableMetadata cassandraMetadata = session.getMetadata()
-			.getKeyspace(schema.keyspace())
+		TableMetadata cassandraMetadata = this.session.getMetadata()
+			.getKeyspace(this.schema.keyspace())
 			.get()
-			.getTable(schema.table())
+			.getTable(this.schema.table())
 			.get();
 
 		this.similarity = getIndexSimilarity(cassandraMetadata);
@@ -285,12 +251,10 @@ public class CassandraVectorStore extends AbstractObservationVectorStore impleme
 
 		this.filterExpressionConverter = builder.filterExpressionConverter != null ? builder.filterExpressionConverter
 				: new CassandraFilterExpressionConverter(cassandraMetadata.getColumns().values());
-
-		this.returnEmbeddings = builder.returnEmbeddings;
 	}
 
-	public static CassandraBuilder builder() {
-		return new CassandraBuilder();
+	public static Builder builder(EmbeddingModel embeddingModel) {
+		return new Builder(embeddingModel);
 	}
 
 	private static Float[] toFloatArray(float[] embedding) {
@@ -320,7 +284,7 @@ public class CassandraVectorStore extends AbstractObservationVectorStore impleme
 					builder = builder.set(keyColumn.name(), primaryKeyValues.get(k), keyColumn.javaType());
 				}
 
-				builder = builder.setString(this.schema.content(), d.getContent())
+				builder = builder.setString(this.schema.content(), d.getText())
 					.setVector(this.schema.embedding(),
 							CqlVector.newInstance(EmbeddingUtils.toList(embeddings.get(documents.indexOf(d)))),
 							Float.class);
@@ -475,9 +439,6 @@ public class CassandraVectorStore extends AbstractObservationVectorStore impleme
 		for (var m : this.schema.metadataColumns()) {
 			extraSelectFields.append(',').append(m.name());
 		}
-		if (this.returnEmbeddings) {
-			extraSelectFields.append(',').append(this.schema.embedding());
-		}
 
 		// java-driver-query-builder doesn't support orderByAnnOf yet
 		String query = String.format(QUERY_FORMAT, similarityFunction, ids.toString(), this.schema.content(),
@@ -502,10 +463,10 @@ public class CassandraVectorStore extends AbstractObservationVectorStore impleme
 	@Override
 	public VectorStoreObservationContext.Builder createObservationContextBuilder(String operationName) {
 		return VectorStoreObservationContext.builder(VectorStoreProvider.CASSANDRA.value(), operationName)
-			.withCollectionName(this.schema.table())
-			.withDimensions(this.embeddingModel.dimensions())
-			.withNamespace(this.schema.keyspace())
-			.withSimilarityMetric(getSimilarityMetric());
+			.collectionName(this.schema.table())
+			.dimensions(this.embeddingModel.dimensions())
+			.namespace(this.schema.keyspace())
+			.similarityMetric(getSimilarityMetric());
 	}
 
 	private String getSimilarityMetric() {
@@ -528,7 +489,7 @@ public class CassandraVectorStore extends AbstractObservationVectorStore impleme
 	}
 
 	@VisibleForTesting
-	static void dropKeyspace(CassandraBuilder builder) {
+	static void dropKeyspace(Builder builder) {
 		Preconditions.checkState(builder.keyspace.startsWith("test_"), "Only test keyspaces can be dropped");
 		builder.session.execute(SchemaBuilder.dropKeyspace(builder.keyspace).ifExists().build());
 	}
@@ -783,7 +744,7 @@ public class CassandraVectorStore extends AbstractObservationVectorStore impleme
 	 * https://github.com/apache/cassandra-java-driver/tree/4.x/manual/core/configuration
 	 *
 	 */
-	public static class CassandraBuilder extends AbstractVectorStoreBuilder<CassandraBuilder> {
+	public static class Builder extends AbstractVectorStoreBuilder<Builder> {
 
 		private CqlSession session;
 
@@ -811,8 +772,6 @@ public class CassandraVectorStore extends AbstractObservationVectorStore impleme
 
 		private int fixedThreadPoolExecutorSize = DEFAULT_ADD_CONCURRENCY;
 
-		private BatchingStrategy batchingStrategy = new TokenCountBatchingStrategy();
-
 		private FilterExpressionConverter filterExpressionConverter;
 
 		private DocumentIdTranslator documentIdTranslator = (String id) -> List.of(id);
@@ -827,16 +786,8 @@ public class CassandraVectorStore extends AbstractObservationVectorStore impleme
 
 		private boolean returnEmbeddings = false;
 
-		/**
-		 * Executor to use when adding documents. The hotspot is the call to the
-		 * embeddingModel. For remote transformers you probably want a higher value to
-		 * utilize network. For local transformers you probably want a lower value to
-		 * avoid saturation.
-		 **/
-		public CassandraBuilder fixedThreadPoolExecutorSize(int threads) {
-			Preconditions.checkArgument(0 < threads);
-			this.fixedThreadPoolExecutorSize = threads;
-			return this;
+		private Builder(EmbeddingModel embeddingModel) {
+			super(embeddingModel);
 		}
 
 		/**
@@ -845,9 +796,21 @@ public class CassandraVectorStore extends AbstractObservationVectorStore impleme
 		 * @return the builder instance
 		 * @throws IllegalArgumentException if session is null
 		 */
-		public CassandraBuilder session(CqlSession session) {
+		public Builder session(CqlSession session) {
 			Assert.notNull(session, "Session must not be null");
 			this.session = session;
+			return this;
+		}
+
+		/**
+		 * Executor to use when adding documents. The hotspot is the call to the
+		 * embeddingModel. For remote transformers you probably want a higher value to
+		 * utilize network. For local transformers you probably want a lower value to
+		 * avoid saturation.
+		 **/
+		public Builder fixedThreadPoolExecutorSize(int threads) {
+			Preconditions.checkArgument(0 < threads);
+			this.fixedThreadPoolExecutorSize = threads;
 			return this;
 		}
 
@@ -857,7 +820,7 @@ public class CassandraVectorStore extends AbstractObservationVectorStore impleme
 		 * @return the builder instance
 		 * @throws IllegalArgumentException if keyspace is null or empty
 		 */
-		public CassandraBuilder keyspace(String keyspace) {
+		public Builder keyspace(String keyspace) {
 			Assert.hasText(keyspace, "Keyspace must not be null or empty");
 			this.keyspace = keyspace;
 			return this;
@@ -869,12 +832,12 @@ public class CassandraVectorStore extends AbstractObservationVectorStore impleme
 		 * @return the builder instance
 		 * @throws IllegalStateException if session is already set
 		 */
-		public CassandraBuilder contactPoint(InetSocketAddress contactPoint) {
-			Assert.state(session == null, "Cannot call addContactPoint(..) when session is already set");
-			if (sessionBuilder == null) {
-				sessionBuilder = new CqlSessionBuilder();
+		public Builder contactPoint(InetSocketAddress contactPoint) {
+			Assert.state(this.session == null, "Cannot call addContactPoint(..) when session is already set");
+			if (this.sessionBuilder == null) {
+				this.sessionBuilder = new CqlSessionBuilder();
 			}
-			sessionBuilder.addContactPoint(contactPoint);
+			this.sessionBuilder.addContactPoint(contactPoint);
 			return this;
 		}
 
@@ -884,12 +847,12 @@ public class CassandraVectorStore extends AbstractObservationVectorStore impleme
 		 * @return the builder instance
 		 * @throws IllegalStateException if session is already set
 		 */
-		public CassandraBuilder localDatacenter(String localDatacenter) {
-			Assert.state(session == null, "Cannot call withLocalDatacenter(..) when session is already set");
-			if (sessionBuilder == null) {
-				sessionBuilder = new CqlSessionBuilder();
+		public Builder localDatacenter(String localDatacenter) {
+			Assert.state(this.session == null, "Cannot call withLocalDatacenter(..) when session is already set");
+			if (this.sessionBuilder == null) {
+				this.sessionBuilder = new CqlSessionBuilder();
 			}
-			sessionBuilder.withLocalDatacenter(localDatacenter);
+			this.sessionBuilder.withLocalDatacenter(localDatacenter);
 			return this;
 		}
 
@@ -899,7 +862,7 @@ public class CassandraVectorStore extends AbstractObservationVectorStore impleme
 		 * @return the builder instance
 		 * @throws IllegalArgumentException if table is null or empty
 		 */
-		public CassandraBuilder table(String table) {
+		public Builder table(String table) {
 			Assert.hasText(table, "Table must not be null or empty");
 			this.table = table;
 			return this;
@@ -911,7 +874,7 @@ public class CassandraVectorStore extends AbstractObservationVectorStore impleme
 		 * @return the builder instance
 		 * @throws IllegalArgumentException if partitionKeys is null or empty
 		 */
-		public CassandraBuilder partitionKeys(List<SchemaColumn> partitionKeys) {
+		public Builder partitionKeys(List<SchemaColumn> partitionKeys) {
 			Assert.notEmpty(partitionKeys, "Partition keys must not be null or empty");
 			this.partitionKeys = partitionKeys;
 			return this;
@@ -922,7 +885,7 @@ public class CassandraVectorStore extends AbstractObservationVectorStore impleme
 		 * @param clusteringKeys the clustering keys
 		 * @return the builder instance
 		 */
-		public CassandraBuilder clusteringKeys(List<SchemaColumn> clusteringKeys) {
+		public Builder clusteringKeys(List<SchemaColumn> clusteringKeys) {
 			this.clusteringKeys = clusteringKeys != null ? clusteringKeys : List.of();
 			return this;
 		}
@@ -932,7 +895,7 @@ public class CassandraVectorStore extends AbstractObservationVectorStore impleme
 		 * @param indexName the index name
 		 * @return the builder instance
 		 */
-		public CassandraBuilder indexName(String indexName) {
+		public Builder indexName(String indexName) {
 			this.indexName = indexName;
 			return this;
 		}
@@ -942,20 +905,8 @@ public class CassandraVectorStore extends AbstractObservationVectorStore impleme
 		 * @param disallowSchemaChanges true to disallow schema changes
 		 * @return the builder instance
 		 */
-		public CassandraBuilder disallowSchemaChanges(boolean disallowSchemaChanges) {
+		public Builder disallowSchemaChanges(boolean disallowSchemaChanges) {
 			this.disallowSchemaChanges = disallowSchemaChanges;
-			return this;
-		}
-
-		/**
-		 * Sets the batching strategy.
-		 * @param batchingStrategy the batching strategy to use
-		 * @return the builder instance
-		 * @throws IllegalArgumentException if batchingStrategy is null
-		 */
-		public CassandraBuilder batchingStrategy(BatchingStrategy batchingStrategy) {
-			Assert.notNull(batchingStrategy, "BatchingStrategy must not be null");
-			this.batchingStrategy = batchingStrategy;
 			return this;
 		}
 
@@ -965,7 +916,7 @@ public class CassandraVectorStore extends AbstractObservationVectorStore impleme
 		 * @return the builder instance
 		 * @throws IllegalArgumentException if converter is null
 		 */
-		public CassandraBuilder filterExpressionConverter(FilterExpressionConverter converter) {
+		public Builder filterExpressionConverter(FilterExpressionConverter converter) {
 			Assert.notNull(converter, "FilterExpressionConverter must not be null");
 			this.filterExpressionConverter = converter;
 			return this;
@@ -977,37 +928,37 @@ public class CassandraVectorStore extends AbstractObservationVectorStore impleme
 		 * @return the builder instance
 		 * @throws IllegalArgumentException if translator is null
 		 */
-		public CassandraBuilder documentIdTranslator(DocumentIdTranslator translator) {
+		public Builder documentIdTranslator(DocumentIdTranslator translator) {
 			Assert.notNull(translator, "DocumentIdTranslator must not be null");
 			this.documentIdTranslator = translator;
 			return this;
 		}
 
-		public CassandraBuilder contentColumnName(String contentColumnName) {
+		public Builder contentColumnName(String contentColumnName) {
 			this.contentColumnName = contentColumnName;
 			return this;
 		}
 
-		public CassandraBuilder embeddingColumnName(String embeddingColumnName) {
+		public Builder embeddingColumnName(String embeddingColumnName) {
 			this.embeddingColumnName = embeddingColumnName;
 			return this;
 		}
 
-		public CassandraBuilder addMetadataColumns(SchemaColumn... columns) {
-			CassandraBuilder builder = this;
+		public Builder addMetadataColumns(SchemaColumn... columns) {
+			Builder builder = this;
 			for (SchemaColumn f : columns) {
 				builder = builder.addMetadataColumn(f);
 			}
 			return builder;
 		}
 
-		public CassandraBuilder addMetadataColumns(List<SchemaColumn> columns) {
-			CassandraBuilder builder = this;
+		public Builder addMetadataColumns(List<SchemaColumn> columns) {
+			Builder builder = this;
 			this.metadataColumns.addAll(columns);
 			return builder;
 		}
 
-		public CassandraBuilder addMetadataColumn(SchemaColumn column) {
+		public Builder addMetadataColumn(SchemaColumn column) {
 
 			Preconditions.checkArgument(this.metadataColumns.stream().noneMatch(sc -> sc.name().equals(column.name())),
 					"A metadata column with name %s has already been added", column.name());
@@ -1022,63 +973,62 @@ public class CassandraVectorStore extends AbstractObservationVectorStore impleme
 		 * @return the builder instance
 		 * @throws IllegalArgumentException if translator is null
 		 */
-		public CassandraBuilder primaryKeyTranslator(PrimaryKeyTranslator translator) {
+		public Builder primaryKeyTranslator(PrimaryKeyTranslator translator) {
 			Assert.notNull(translator, "PrimaryKeyTranslator must not be null");
 			this.primaryKeyTranslator = translator;
 			return this;
 		}
 
-		public CassandraBuilder returnEmbeddings(boolean returnEmbeddings) {
+		public Builder returnEmbeddings(boolean returnEmbeddings) {
 			this.returnEmbeddings = true;
 			return this;
 		}
 
 		Schema buildSchema() {
 			if (this.indexName == null) {
-				this.indexName = String.format("%s_%s_%s", table, embeddingColumnName, DEFAULT_INDEX_SUFFIX);
+				this.indexName = String.format("%s_%s_%s", this.table, this.embeddingColumnName, DEFAULT_INDEX_SUFFIX);
 			}
 
 			validateSchema();
 
-			return new Schema(keyspace, table, partitionKeys, clusteringKeys, contentColumnName, embeddingColumnName,
-					indexName, metadataColumns);
+			return new Schema(this.keyspace, this.table, this.partitionKeys, this.clusteringKeys,
+					this.contentColumnName, this.embeddingColumnName, this.indexName, this.metadataColumns);
 		}
 
 		private void validateSchema() {
-			for (SchemaColumn metadata : metadataColumns) {
-				Assert.isTrue(!partitionKeys.stream().anyMatch(c -> c.name().equals(metadata.name())),
+			for (SchemaColumn metadata : this.metadataColumns) {
+				Assert.isTrue(!this.partitionKeys.stream().anyMatch(c -> c.name().equals(metadata.name())),
 						"metadataColumn " + metadata.name() + " cannot have same name as a partition key");
 
-				Assert.isTrue(!clusteringKeys.stream().anyMatch(c -> c.name().equals(metadata.name())),
+				Assert.isTrue(!this.clusteringKeys.stream().anyMatch(c -> c.name().equals(metadata.name())),
 						"metadataColumn " + metadata.name() + " cannot have same name as a clustering key");
 
-				Assert.isTrue(!metadata.name().equals(contentColumnName),
+				Assert.isTrue(!metadata.name().equals(this.contentColumnName),
 						"metadataColumn " + metadata.name() + " cannot have same name as content column name");
 
-				Assert.isTrue(!metadata.name().equals(embeddingColumnName),
+				Assert.isTrue(!metadata.name().equals(this.embeddingColumnName),
 						"metadataColumn " + metadata.name() + " cannot have same name as embedding column name");
 			}
 
-			int primaryKeyColumnsCount = partitionKeys.size() + clusteringKeys.size();
-			String exampleId = primaryKeyTranslator.apply(Collections.emptyList());
-			List<Object> testIdTranslation = documentIdTranslator.apply(exampleId);
+			int primaryKeyColumnsCount = this.partitionKeys.size() + this.clusteringKeys.size();
+			String exampleId = this.primaryKeyTranslator.apply(Collections.emptyList());
+			List<Object> testIdTranslation = this.documentIdTranslator.apply(exampleId);
 
 			Assert.isTrue(testIdTranslation.size() == primaryKeyColumnsCount,
 					"documentIdTranslator results length " + testIdTranslation.size()
 							+ " doesn't match number of primary key columns " + primaryKeyColumnsCount);
 
-			Assert.isTrue(exampleId.equals(primaryKeyTranslator.apply(documentIdTranslator.apply(exampleId))),
+			Assert.isTrue(exampleId.equals(this.primaryKeyTranslator.apply(this.documentIdTranslator.apply(exampleId))),
 					"primaryKeyTranslator is not an inverse function to documentIdTranslator");
 		}
 
 		@Override
 		public CassandraVectorStore build() {
-			validate();
-			if (session == null && sessionBuilder != null) {
-				session = sessionBuilder.build();
-				closeSessionOnClose = true;
+			if (this.session == null && this.sessionBuilder != null) {
+				this.session = this.sessionBuilder.build();
+				this.closeSessionOnClose = true;
 			}
-			Assert.notNull(session, "Either session must be set directly or configured via sessionBuilder");
+			Assert.notNull(this.session, "Either session must be set directly or configured via sessionBuilder");
 			return new CassandraVectorStore(this);
 		}
 

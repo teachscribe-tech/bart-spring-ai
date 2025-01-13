@@ -141,7 +141,7 @@ public class MongoDbVectorStoreObservationIT {
 			observationRegistry.clear();
 
 			List<Document> results = vectorStore
-				.similaritySearch(SearchRequest.query("What is Great Depression").withTopK(1));
+				.similaritySearch(SearchRequest.builder().query("What is Great Depression").topK(1).build());
 
 			assertThat(results).isNotEmpty();
 
@@ -187,9 +187,7 @@ public class MongoDbVectorStoreObservationIT {
 		@Bean
 		public VectorStore vectorStore(MongoTemplate mongoTemplate, EmbeddingModel embeddingModel,
 				ObservationRegistry observationRegistry) {
-			return MongoDBAtlasVectorStore.builder()
-				.mongoTemplate(mongoTemplate)
-				.embeddingModel(embeddingModel)
+			return MongoDBAtlasVectorStore.builder(mongoTemplate, embeddingModel)
 				.metadataFieldsToFilter(List.of("country", "year"))
 				.initializeSchema(true)
 				.observationRegistry(observationRegistry)

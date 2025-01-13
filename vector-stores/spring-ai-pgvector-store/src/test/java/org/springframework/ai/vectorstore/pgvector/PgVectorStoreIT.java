@@ -34,19 +34,19 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.springframework.ai.document.DocumentMetadata;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import org.springframework.ai.document.Document;
+import org.springframework.ai.document.DocumentMetadata;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.openai.OpenAiEmbeddingModel;
 import org.springframework.ai.openai.api.OpenAiApi;
-import org.springframework.ai.vectorstore.pgvector.PgVectorStore.PgIndexType;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.vectorstore.filter.FilterExpressionTextParser.FilterExpressionParseException;
+import org.springframework.ai.vectorstore.pgvector.PgVectorStore.PgIndexType;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -148,7 +148,7 @@ public class PgVectorStoreIT {
 				vectorStore.add(this.documents);
 
 				List<Document> results = vectorStore
-					.similaritySearch(SearchRequest.query("What is Great Depression").withTopK(1));
+					.similaritySearch(SearchRequest.builder().query("What is Great Depression").topK(1).build());
 
 				assertThat(results).hasSize(1);
 				Document resultDoc = results.get(0);
@@ -159,7 +159,7 @@ public class PgVectorStoreIT {
 				vectorStore.delete(this.documents.stream().map(doc -> doc.getId()).toList());
 
 				List<Document> results2 = vectorStore
-					.similaritySearch(SearchRequest.query("Great Depression").withTopK(1));
+					.similaritySearch(SearchRequest.builder().query("Great Depression").topK(1).build());
 				assertThat(results2).hasSize(0);
 
 				dropTable(context);
@@ -184,10 +184,12 @@ public class PgVectorStoreIT {
 
 				vectorStore.add(List.of(bgDocument, nlDocument, bgDocument2));
 
-				SearchRequest searchRequest = SearchRequest.query("The World")
-					.withFilterExpression(expression)
-					.withTopK(5)
-					.withSimilarityThresholdAll();
+				SearchRequest searchRequest = SearchRequest.builder()
+					.query("The World")
+					.filterExpression(expression)
+					.topK(5)
+					.similarityThresholdAll()
+					.build();
 
 				List<Document> results = vectorStore.similaritySearch(searchRequest);
 
@@ -216,51 +218,62 @@ public class PgVectorStoreIT {
 
 				vectorStore.add(List.of(bgDocument, nlDocument, bgDocument2));
 
-				SearchRequest searchRequest = SearchRequest.query("The World").withTopK(5).withSimilarityThresholdAll();
+				SearchRequest searchRequest = SearchRequest.builder()
+					.query("The World")
+					.topK(5)
+					.similarityThresholdAll()
+					.build();
 
 				List<Document> results = vectorStore.similaritySearch(searchRequest);
 
 				assertThat(results).hasSize(3);
 
-				results = vectorStore.similaritySearch(searchRequest.withFilterExpression("country == 'NL'"));
+				results = vectorStore
+					.similaritySearch(SearchRequest.from(searchRequest).filterExpression("country == 'NL'").build());
 
 				assertThat(results).hasSize(1);
 				assertThat(results.get(0).getId()).isEqualTo(nlDocument.getId());
 
-				results = vectorStore.similaritySearch(searchRequest.withFilterExpression("country == 'BG'"));
+				results = vectorStore
+					.similaritySearch(SearchRequest.from(searchRequest).filterExpression("country == 'BG'").build());
 
 				assertThat(results).hasSize(2);
 				assertThat(results.get(0).getId()).isIn(bgDocument.getId(), bgDocument2.getId());
 				assertThat(results.get(1).getId()).isIn(bgDocument.getId(), bgDocument2.getId());
 
-				results = vectorStore
-					.similaritySearch(searchRequest.withFilterExpression("country == 'BG' && year == 2020"));
+				results = vectorStore.similaritySearch(
+						SearchRequest.from(searchRequest).filterExpression("country == 'BG' && year == 2020").build());
 
 				assertThat(results).hasSize(1);
 				assertThat(results.get(0).getId()).isEqualTo(bgDocument.getId());
 
-				results = vectorStore.similaritySearch(
-						searchRequest.withFilterExpression("(country == 'BG' && year == 2020) || (country == 'NL')"));
+				results = vectorStore.similaritySearch(SearchRequest.from(searchRequest)
+					.filterExpression("(country == 'BG' && year == 2020) || (country == 'NL')")
+					.build());
 
 				assertThat(results).hasSize(2);
 				assertThat(results.get(0).getId()).isIn(bgDocument.getId(), nlDocument.getId());
 				assertThat(results.get(1).getId()).isIn(bgDocument.getId(), nlDocument.getId());
 
-				results = vectorStore.similaritySearch(searchRequest
-					.withFilterExpression("NOT((country == 'BG' && year == 2020) || (country == 'NL'))"));
+				results = vectorStore.similaritySearch(SearchRequest.from(searchRequest)
+					.filterExpression("NOT((country == 'BG' && year == 2020) || (country == 'NL'))")
+					.build());
 
 				assertThat(results).hasSize(1);
 				assertThat(results.get(0).getId()).isEqualTo(bgDocument2.getId());
 
-				results = vectorStore.similaritySearch(SearchRequest.query("The World")
-					.withTopK(5)
-					.withSimilarityThresholdAll()
-					.withFilterExpression("\"foo bar 1\" == 'bar.foo'"));
+				results = vectorStore.similaritySearch(SearchRequest.builder()
+					.query("The World")
+					.topK(5)
+					.similarityThresholdAll()
+					.filterExpression("\"foo bar 1\" == 'bar.foo'")
+					.build());
 				assertThat(results).hasSize(1);
 				assertThat(results.get(0).getId()).isEqualTo(bgDocument.getId());
 
 				try {
-					vectorStore.similaritySearch(searchRequest.withFilterExpression("country == NL"));
+					vectorStore
+						.similaritySearch(SearchRequest.from(searchRequest).filterExpression("country == NL").build());
 					Assert.fail("Invalid filter expression should have been cached!");
 				}
 				catch (FilterExpressionParseException e) {
@@ -286,12 +299,13 @@ public class PgVectorStoreIT {
 
 				vectorStore.add(List.of(document));
 
-				List<Document> results = vectorStore.similaritySearch(SearchRequest.query("Spring").withTopK(5));
+				List<Document> results = vectorStore
+					.similaritySearch(SearchRequest.builder().query("Spring").topK(5).build());
 
 				assertThat(results).hasSize(1);
 				Document resultDoc = results.get(0);
 				assertThat(resultDoc.getId()).isEqualTo(document.getId());
-				assertThat(resultDoc.getContent()).isEqualTo("Spring AI rocks!!");
+				assertThat(resultDoc.getText()).isEqualTo("Spring AI rocks!!");
 				assertThat(resultDoc.getMetadata()).containsKeys("meta1", DocumentMetadata.DISTANCE.value());
 
 				Document sameIdDocument = new Document(document.getId(),
@@ -300,12 +314,12 @@ public class PgVectorStoreIT {
 
 				vectorStore.add(List.of(sameIdDocument));
 
-				results = vectorStore.similaritySearch(SearchRequest.query("FooBar").withTopK(5));
+				results = vectorStore.similaritySearch(SearchRequest.builder().query("FooBar").topK(5).build());
 
 				assertThat(results).hasSize(1);
 				resultDoc = results.get(0);
 				assertThat(resultDoc.getId()).isEqualTo(document.getId());
-				assertThat(resultDoc.getContent()).isEqualTo("The World is Big and Salvation Lurks Around the Corner");
+				assertThat(resultDoc.getText()).isEqualTo("The World is Big and Salvation Lurks Around the Corner");
 				assertThat(resultDoc.getMetadata()).containsKeys("meta2", DocumentMetadata.DISTANCE.value());
 
 				dropTable(context);
@@ -324,8 +338,8 @@ public class PgVectorStoreIT {
 
 				vectorStore.add(this.documents);
 
-				List<Document> fullResult = vectorStore
-					.similaritySearch(SearchRequest.query("Time Shelter").withTopK(5).withSimilarityThresholdAll());
+				List<Document> fullResult = vectorStore.similaritySearch(
+						SearchRequest.builder().query("Time Shelter").topK(5).similarityThresholdAll().build());
 
 				assertThat(fullResult).hasSize(3);
 
@@ -335,8 +349,11 @@ public class PgVectorStoreIT {
 
 				double similarityThreshold = (scores.get(0) + scores.get(1)) / 2;
 
-				List<Document> results = vectorStore.similaritySearch(
-						SearchRequest.query("Time Shelter").withTopK(5).withSimilarityThreshold(similarityThreshold));
+				List<Document> results = vectorStore.similaritySearch(SearchRequest.builder()
+					.query("Time Shelter")
+					.topK(5)
+					.similarityThreshold(similarityThreshold)
+					.build());
 
 				assertThat(results).hasSize(1);
 				Document resultDoc = results.get(0);
@@ -356,9 +373,7 @@ public class PgVectorStoreIT {
 
 		@Bean
 		public VectorStore vectorStore(JdbcTemplate jdbcTemplate, EmbeddingModel embeddingModel) {
-			return PgVectorStore.builder()
-				.jdbcTemplate(jdbcTemplate)
-				.embeddingModel(embeddingModel)
+			return PgVectorStore.builder(jdbcTemplate, embeddingModel)
 				.dimensions(PgVectorStore.INVALID_EMBEDDING_DIMENSION)
 				.distanceType(this.distanceType)
 				.initializeSchema(true)

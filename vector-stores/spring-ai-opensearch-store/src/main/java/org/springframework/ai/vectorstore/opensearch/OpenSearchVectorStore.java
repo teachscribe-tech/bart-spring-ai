@@ -1,5 +1,5 @@
 /*
- * Copyright 2023-2024 the original author or authors.
+ * Copyright 2023-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,7 +24,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-import io.micrometer.observation.ObservationRegistry;
 import org.opensearch.client.json.JsonData;
 import org.opensearch.client.json.JsonpMapper;
 import org.opensearch.client.opensearch.OpenSearchClient;
@@ -52,7 +51,6 @@ import org.springframework.ai.vectorstore.filter.Filter;
 import org.springframework.ai.vectorstore.filter.FilterExpressionConverter;
 import org.springframework.ai.vectorstore.observation.AbstractObservationVectorStore;
 import org.springframework.ai.vectorstore.observation.VectorStoreObservationContext;
-import org.springframework.ai.vectorstore.observation.VectorStoreObservationConvention;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.util.Assert;
 
@@ -82,9 +80,7 @@ import org.springframework.util.Assert;
  * Basic usage example:
  * </p>
  * <pre>{@code
- * OpenSearchVectorStore vectorStore = OpenSearchVectorStore.builder()
- *     .openSearchClient(openSearchClient)
- *     .embeddingModel(embeddingModel)
+ * OpenSearchVectorStore vectorStore = OpenSearchVectorStore.builder(openSearchClient, embeddingModel)
  *     .initializeSchema(true)
  *     .build();
  *
@@ -107,9 +103,7 @@ import org.springframework.util.Assert;
  * Advanced configuration example:
  * </p>
  * <pre>{@code
- * OpenSearchVectorStore vectorStore = OpenSearchVectorStore.builder()
- *     .openSearchClient(openSearchClient)
- *     .embeddingModel(embeddingModel)
+ * OpenSearchVectorStore vectorStore = OpenSearchVectorStore.builder(openSearchClient, embeddingModel)
  *     .index("custom-index")
  *     .mappingJson(customMapping)
  *     .similarityFunction("l2")
@@ -170,89 +164,13 @@ public class OpenSearchVectorStore extends AbstractObservationVectorStore implem
 
 	private final boolean initializeSchema;
 
-	private final BatchingStrategy batchingStrategy;
-
 	private String similarityFunction;
-
-	/**
-	 * Creates a new OpenSearchVectorStore with default mapping and collection name.
-	 * @deprecated Use {@link #builder()} instead
-	 * @param openSearchClient The OpenSearch client
-	 * @param embeddingModel The embedding model to use
-	 * @param initializeSchema Whether to initialize the schema
-	 * @since 1.0.0
-	 */
-	@Deprecated(since = "1.0.0-M5", forRemoval = true)
-	public OpenSearchVectorStore(OpenSearchClient openSearchClient, EmbeddingModel embeddingModel,
-			boolean initializeSchema) {
-		this(openSearchClient, embeddingModel, DEFAULT_MAPPING_EMBEDDING_TYPE_KNN_VECTOR_DIMENSION, initializeSchema);
-	}
-
-	/**
-	 * Creates a new OpenSearchVectorStore with custom mapping.
-	 * @deprecated Use {@link #builder()} instead
-	 * @param openSearchClient The OpenSearch client
-	 * @param embeddingModel The embedding model to use
-	 * @param mappingJson The JSON mapping for the index
-	 * @param initializeSchema Whether to initialize the schema
-	 * @since 1.0.0
-	 */
-	@Deprecated(since = "1.0.0-M5", forRemoval = true)
-	public OpenSearchVectorStore(OpenSearchClient openSearchClient, EmbeddingModel embeddingModel, String mappingJson,
-			boolean initializeSchema) {
-		this(DEFAULT_INDEX_NAME, openSearchClient, embeddingModel, mappingJson, initializeSchema);
-	}
-
-	/**
-	 * Creates a new OpenSearchVectorStore with custom index name and mapping.
-	 * @deprecated Use {@link #builder()} instead
-	 * @param index The name of the index
-	 * @param openSearchClient The OpenSearch client
-	 * @param embeddingModel The embedding model to use
-	 * @param mappingJson The JSON mapping for the index
-	 * @param initializeSchema Whether to initialize the schema
-	 * @since 1.0.0
-	 */
-	@Deprecated(since = "1.0.0-M5", forRemoval = true)
-	public OpenSearchVectorStore(String index, OpenSearchClient openSearchClient, EmbeddingModel embeddingModel,
-			String mappingJson, boolean initializeSchema) {
-		this(index, openSearchClient, embeddingModel, mappingJson, initializeSchema, ObservationRegistry.NOOP, null,
-				new TokenCountBatchingStrategy());
-	}
-
-	/**
-	 * Creates a new OpenSearchVectorStore with all configuration options.
-	 * @deprecated Use {@link #builder()} instead
-	 * @param index The name of the index
-	 * @param openSearchClient The OpenSearch client
-	 * @param embeddingModel The embedding model to use
-	 * @param mappingJson The JSON mapping for the index
-	 * @param initializeSchema Whether to initialize the schema
-	 * @param observationRegistry The observation registry for metrics
-	 * @param customObservationConvention Custom observation convention
-	 * @param batchingStrategy The strategy for batching operations
-	 * @since 1.0.0
-	 */
-	@Deprecated(since = "1.0.0-M5", forRemoval = true)
-	public OpenSearchVectorStore(String index, OpenSearchClient openSearchClient, EmbeddingModel embeddingModel,
-			String mappingJson, boolean initializeSchema, ObservationRegistry observationRegistry,
-			VectorStoreObservationConvention customObservationConvention, BatchingStrategy batchingStrategy) {
-
-		this(builder().openSearchClient(openSearchClient)
-			.embeddingModel(embeddingModel)
-			.index(index)
-			.mappingJson(mappingJson)
-			.initializeSchema(initializeSchema)
-			.observationRegistry(observationRegistry)
-			.customObservationConvention(customObservationConvention)
-			.batchingStrategy(batchingStrategy));
-	}
 
 	/**
 	 * Creates a new OpenSearchVectorStore using the builder pattern.
 	 * @param builder The configured builder instance
 	 */
-	protected OpenSearchVectorStore(OpenSearchBuilder builder) {
+	protected OpenSearchVectorStore(Builder builder) {
 		super(builder);
 
 		Assert.notNull(builder.openSearchClient, "OpenSearchClient must not be null");
@@ -265,15 +183,14 @@ public class OpenSearchVectorStore extends AbstractObservationVectorStore implem
 		// https://opensearch.org/docs/latest/search-plugins/knn/approximate-knn/#spaces
 		this.similarityFunction = builder.similarityFunction;
 		this.initializeSchema = builder.initializeSchema;
-		this.batchingStrategy = builder.batchingStrategy;
 	}
 
 	/**
 	 * Creates a new builder instance for configuring an OpenSearchVectorStore.
 	 * @return A new OpenSearchBuilder instance
 	 */
-	public static OpenSearchBuilder builder() {
-		return new OpenSearchBuilder();
+	public static Builder builder(OpenSearchClient openSearchClient, EmbeddingModel embeddingModel) {
+		return new Builder(openSearchClient, embeddingModel);
 	}
 
 	public OpenSearchVectorStore withSimilarityFunction(String similarityFunction) {
@@ -287,7 +204,7 @@ public class OpenSearchVectorStore extends AbstractObservationVectorStore implem
 				this.batchingStrategy);
 		BulkRequest.Builder bulkRequestBuilder = new BulkRequest.Builder();
 		for (Document document : documents) {
-			OpenSearchDocument openSearchDocument = new OpenSearchDocument(document.getId(), document.getContent(),
+			OpenSearchDocument openSearchDocument = new OpenSearchDocument(document.getId(), document.getText(),
 					document.getMetadata(), embedding.get(documents.indexOf(document)));
 			bulkRequestBuilder.operations(op -> op
 				.index(idx -> idx.index(this.index).id(openSearchDocument.id()).document(openSearchDocument)));
@@ -418,9 +335,9 @@ public class OpenSearchVectorStore extends AbstractObservationVectorStore implem
 	@Override
 	public VectorStoreObservationContext.Builder createObservationContextBuilder(String operationName) {
 		return VectorStoreObservationContext.builder(VectorStoreProvider.OPENSEARCH.value(), operationName)
-			.withCollectionName(this.index)
-			.withDimensions(this.embeddingModel.dimensions())
-			.withSimilarityMetric(getSimilarityFunction());
+			.collectionName(this.index)
+			.dimensions(this.embeddingModel.dimensions())
+			.similarityMetric(getSimilarityFunction());
 	}
 
 	private String getSimilarityFunction() {
@@ -448,17 +365,15 @@ public class OpenSearchVectorStore extends AbstractObservationVectorStore implem
 	/**
 	 * Builder class for creating OpenSearchVectorStore instances.
 	 */
-	public static class OpenSearchBuilder extends AbstractVectorStoreBuilder<OpenSearchBuilder> {
+	public static class Builder extends AbstractVectorStoreBuilder<Builder> {
 
-		private OpenSearchClient openSearchClient;
+		private final OpenSearchClient openSearchClient;
 
 		private String index = DEFAULT_INDEX_NAME;
 
 		private String mappingJson = DEFAULT_MAPPING_EMBEDDING_TYPE_KNN_VECTOR_DIMENSION;
 
 		private boolean initializeSchema = false;
-
-		private BatchingStrategy batchingStrategy = new TokenCountBatchingStrategy();
 
 		private FilterExpressionConverter filterExpressionConverter = new OpenSearchAiSearchFilterExpressionConverter();
 
@@ -467,25 +382,12 @@ public class OpenSearchVectorStore extends AbstractObservationVectorStore implem
 		/**
 		 * Sets the OpenSearch client.
 		 * @param openSearchClient The OpenSearch client to use
-		 * @return The builder instance
 		 * @throws IllegalArgumentException if openSearchClient is null
 		 */
-		public OpenSearchBuilder openSearchClient(OpenSearchClient openSearchClient) {
+		private Builder(OpenSearchClient openSearchClient, EmbeddingModel embeddingModel) {
+			super(embeddingModel);
 			Assert.notNull(openSearchClient, "OpenSearchClient must not be null");
 			this.openSearchClient = openSearchClient;
-			return this;
-		}
-
-		/**
-		 * Sets the embedding model.
-		 * @param embeddingModel The embedding model to use
-		 * @return The builder instance
-		 * @throws IllegalArgumentException if embeddingModel is null
-		 */
-		public OpenSearchBuilder embeddingModel(EmbeddingModel embeddingModel) {
-			Assert.notNull(embeddingModel, "EmbeddingModel must not be null");
-			this.embeddingModel = embeddingModel;
-			return this;
 		}
 
 		/**
@@ -494,7 +396,7 @@ public class OpenSearchVectorStore extends AbstractObservationVectorStore implem
 		 * @return The builder instance
 		 * @throws IllegalArgumentException if index is null or empty
 		 */
-		public OpenSearchBuilder index(String index) {
+		public Builder index(String index) {
 			Assert.hasText(index, "index must not be null or empty");
 			this.index = index;
 			return this;
@@ -506,7 +408,7 @@ public class OpenSearchVectorStore extends AbstractObservationVectorStore implem
 		 * @return The builder instance
 		 * @throws IllegalArgumentException if mappingJson is null or empty
 		 */
-		public OpenSearchBuilder mappingJson(String mappingJson) {
+		public Builder mappingJson(String mappingJson) {
 			Assert.hasText(mappingJson, "mappingJson must not be null or empty");
 			this.mappingJson = mappingJson;
 			return this;
@@ -517,20 +419,8 @@ public class OpenSearchVectorStore extends AbstractObservationVectorStore implem
 		 * @param initializeSchema true to initialize schema, false otherwise
 		 * @return The builder instance
 		 */
-		public OpenSearchBuilder initializeSchema(boolean initializeSchema) {
+		public Builder initializeSchema(boolean initializeSchema) {
 			this.initializeSchema = initializeSchema;
-			return this;
-		}
-
-		/**
-		 * Sets the batching strategy.
-		 * @param batchingStrategy The batching strategy to use
-		 * @return The builder instance
-		 * @throws IllegalArgumentException if batchingStrategy is null
-		 */
-		public OpenSearchBuilder batchingStrategy(BatchingStrategy batchingStrategy) {
-			Assert.notNull(batchingStrategy, "batchingStrategy must not be null");
-			this.batchingStrategy = batchingStrategy;
 			return this;
 		}
 
@@ -540,7 +430,7 @@ public class OpenSearchVectorStore extends AbstractObservationVectorStore implem
 		 * @return The builder instance
 		 * @throws IllegalArgumentException if converter is null
 		 */
-		public OpenSearchBuilder filterExpressionConverter(FilterExpressionConverter converter) {
+		public Builder filterExpressionConverter(FilterExpressionConverter converter) {
 			Assert.notNull(converter, "filterExpressionConverter must not be null");
 			this.filterExpressionConverter = converter;
 			return this;
@@ -554,7 +444,7 @@ public class OpenSearchVectorStore extends AbstractObservationVectorStore implem
 		 * @return The builder instance
 		 * @throws IllegalArgumentException if similarityFunction is null or empty
 		 */
-		public OpenSearchBuilder similarityFunction(String similarityFunction) {
+		public Builder similarityFunction(String similarityFunction) {
 			Assert.hasText(similarityFunction, "similarityFunction must not be null or empty");
 			this.similarityFunction = similarityFunction;
 			return this;
@@ -567,7 +457,6 @@ public class OpenSearchVectorStore extends AbstractObservationVectorStore implem
 		 */
 		@Override
 		public OpenSearchVectorStore build() {
-			validate();
 			return new OpenSearchVectorStore(this);
 		}
 

@@ -22,7 +22,6 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 
-import io.micrometer.observation.ObservationRegistry;
 import io.qdrant.client.QdrantClient;
 import io.qdrant.client.grpc.Collections.Distance;
 import io.qdrant.client.grpc.Collections.VectorParams;
@@ -46,7 +45,6 @@ import org.springframework.ai.vectorstore.AbstractVectorStoreBuilder;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.observation.AbstractObservationVectorStore;
 import org.springframework.ai.vectorstore.observation.VectorStoreObservationContext;
-import org.springframework.ai.vectorstore.observation.VectorStoreObservationConvention;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.util.Assert;
 
@@ -101,8 +99,7 @@ import org.springframework.util.Assert;
  * Advanced configuration example:
  * </p>
  * <pre>{@code
- * QdrantVectorStore vectorStore = QdrantVectorStore.builder(qdrantClient)
- *     .embeddingModel(embeddingModel)
+ * QdrantVectorStore vectorStore = QdrantVectorStore.builder(qdrantClient, embeddingModel)
  *     .collectionName("custom-collection")
  *     .initializeSchema(true)
  *     .batchingStrategy(new TokenCountBatchingStrategy())
@@ -141,55 +138,15 @@ public class QdrantVectorStore extends AbstractObservationVectorStore implements
 
 	private final boolean initializeSchema;
 
-	private final BatchingStrategy batchingStrategy;
-
-	/**
-	 * Constructs a new QdrantVectorStore.
-	 * @param qdrantClient A {@link QdrantClient} instance for interfacing with Qdrant.
-	 * @param collectionName The name of the collection to use in Qdrant.
-	 * @param embeddingModel The client for embedding operations.
-	 * @param initializeSchema A boolean indicating whether to initialize the schema.
-	 * @deprecated Use {@link #builder(QdrantClient)}
-	 */
-	@Deprecated(forRemoval = true, since = "1.0.0-M5")
-	public QdrantVectorStore(QdrantClient qdrantClient, String collectionName, EmbeddingModel embeddingModel,
-			boolean initializeSchema) {
-		this(qdrantClient, collectionName, embeddingModel, initializeSchema, ObservationRegistry.NOOP, null,
-				new TokenCountBatchingStrategy());
-	}
-
-	/**
-	 * Constructs a new QdrantVectorStore.
-	 * @param qdrantClient A {@link QdrantClient} instance for interfacing with Qdrant.
-	 * @param collectionName The name of the collection to use in Qdrant.
-	 * @param embeddingModel The client for embedding operations.
-	 * @param initializeSchema A boolean indicating whether to initialize the schema.
-	 * @param observationRegistry The observation registry to use.
-	 * @param customObservationConvention The custom search observation convention to use.
-	 * @deprecated Use {@link #builder(QdrantClient)}
-	 */
-	@Deprecated(forRemoval = true, since = "1.0.0-M5")
-	public QdrantVectorStore(QdrantClient qdrantClient, String collectionName, EmbeddingModel embeddingModel,
-			boolean initializeSchema, ObservationRegistry observationRegistry,
-			VectorStoreObservationConvention customObservationConvention, BatchingStrategy batchingStrategy) {
-
-		this(builder(qdrantClient).embeddingModel(embeddingModel)
-			.collectionName(collectionName)
-			.initializeSchema(initializeSchema)
-			.observationRegistry(observationRegistry)
-			.customObservationConvention(customObservationConvention)
-			.batchingStrategy(batchingStrategy));
-	}
-
 	/**
 	 * Protected constructor for creating a QdrantVectorStore instance using the builder
 	 * pattern.
-	 * @param builder the {@link QdrantBuilder} containing all configuration settings
+	 * @param builder the {@link Builder} containing all configuration settings
 	 * @throws IllegalArgumentException if qdrant client is missing
-	 * @see QdrantBuilder
+	 * @see Builder
 	 * @since 1.0.0
 	 */
-	protected QdrantVectorStore(QdrantBuilder builder) {
+	protected QdrantVectorStore(Builder builder) {
 		super(builder);
 
 		Assert.notNull(builder.qdrantClient, "QdrantClient must not be null");
@@ -197,7 +154,6 @@ public class QdrantVectorStore extends AbstractObservationVectorStore implements
 		this.qdrantClient = builder.qdrantClient;
 		this.collectionName = builder.collectionName;
 		this.initializeSchema = builder.initializeSchema;
-		this.batchingStrategy = builder.batchingStrategy;
 	}
 
 	/**
@@ -206,8 +162,8 @@ public class QdrantVectorStore extends AbstractObservationVectorStore implements
 	 * @param qdrantClient the client for interfacing with Qdrant
 	 * @return a new QdrantBuilder instance
 	 */
-	public static QdrantBuilder builder(QdrantClient qdrantClient) {
-		return new QdrantBuilder(qdrantClient);
+	public static Builder builder(QdrantClient qdrantClient, EmbeddingModel embeddingModel) {
+		return new Builder(qdrantClient, embeddingModel);
 	}
 
 	/**
@@ -321,7 +277,7 @@ public class QdrantVectorStore extends AbstractObservationVectorStore implements
 	private Map<String, Value> toPayload(Document document) {
 		try {
 			var payload = QdrantValueFactory.toValueMap(document.getMetadata());
-			payload.put(CONTENT_FIELD_NAME, io.qdrant.client.ValueFactory.value(document.getContent()));
+			payload.put(CONTENT_FIELD_NAME, io.qdrant.client.ValueFactory.value(document.getText()));
 			return payload;
 		}
 		catch (Exception e) {
@@ -359,8 +315,8 @@ public class QdrantVectorStore extends AbstractObservationVectorStore implements
 	public VectorStoreObservationContext.Builder createObservationContextBuilder(String operationName) {
 
 		return VectorStoreObservationContext.builder(VectorStoreProvider.QDRANT.value(), operationName)
-			.withDimensions(this.embeddingModel.dimensions())
-			.withCollectionName(this.collectionName);
+			.dimensions(this.embeddingModel.dimensions())
+			.collectionName(this.collectionName);
 
 	}
 
@@ -370,7 +326,7 @@ public class QdrantVectorStore extends AbstractObservationVectorStore implements
 	 *
 	 * @since 1.0.0
 	 */
-	public static final class QdrantBuilder extends AbstractVectorStoreBuilder<QdrantBuilder> {
+	public static class Builder extends AbstractVectorStoreBuilder<Builder> {
 
 		private final QdrantClient qdrantClient;
 
@@ -378,15 +334,14 @@ public class QdrantVectorStore extends AbstractObservationVectorStore implements
 
 		private boolean initializeSchema = false;
 
-		private BatchingStrategy batchingStrategy = new TokenCountBatchingStrategy();
-
 		/**
 		 * Creates a new builder instance with the required QdrantClient and
 		 * EmbeddingModel.
 		 * @param qdrantClient the client for Qdrant operations
 		 * @throws IllegalArgumentException if qdrantClient is null
 		 */
-		QdrantBuilder(QdrantClient qdrantClient) {
+		private Builder(QdrantClient qdrantClient, EmbeddingModel embeddingModel) {
+			super(embeddingModel);
 			Assert.notNull(qdrantClient, "QdrantClient must not be null");
 			this.qdrantClient = qdrantClient;
 		}
@@ -398,7 +353,7 @@ public class QdrantVectorStore extends AbstractObservationVectorStore implements
 		 * @return this builder instance
 		 * @throws IllegalArgumentException if collectionName is null or empty
 		 */
-		public QdrantBuilder collectionName(String collectionName) {
+		public Builder collectionName(String collectionName) {
 			Assert.hasText(collectionName, "collectionName must not be empty");
 			this.collectionName = collectionName;
 			return this;
@@ -409,20 +364,8 @@ public class QdrantVectorStore extends AbstractObservationVectorStore implements
 		 * @param initializeSchema true to initialize schema automatically
 		 * @return this builder instance
 		 */
-		public QdrantBuilder initializeSchema(boolean initializeSchema) {
+		public Builder initializeSchema(boolean initializeSchema) {
 			this.initializeSchema = initializeSchema;
-			return this;
-		}
-
-		/**
-		 * Configures the strategy for batching operations.
-		 * @param batchingStrategy the batching strategy to use
-		 * @return this builder instance
-		 * @throws IllegalArgumentException if batchingStrategy is null
-		 */
-		public QdrantBuilder batchingStrategy(BatchingStrategy batchingStrategy) {
-			Assert.notNull(batchingStrategy, "BatchingStrategy must not be null");
-			this.batchingStrategy = batchingStrategy;
 			return this;
 		}
 
@@ -434,7 +377,6 @@ public class QdrantVectorStore extends AbstractObservationVectorStore implements
 		 */
 		@Override
 		public QdrantVectorStore build() {
-			validate();
 			return new QdrantVectorStore(this);
 		}
 

@@ -156,13 +156,14 @@ public class ElasticsearchVectorStoreObservationIT {
 
 			Awaitility.await()
 				.until(() -> vectorStore
-					.similaritySearch(SearchRequest.query("What is Great Depression").withSimilarityThresholdAll())
+					.similaritySearch(
+							SearchRequest.builder().query("What is Great Depression").similarityThresholdAll().build())
 					.size(), greaterThan(1));
 
 			observationRegistry.clear();
 
 			List<Document> results = vectorStore
-				.similaritySearch(SearchRequest.query("What is Great Depression").withTopK(1));
+				.similaritySearch(SearchRequest.builder().query("What is Great Depression").topK(1).build());
 
 			assertThat(results).isNotEmpty();
 
@@ -208,9 +209,7 @@ public class ElasticsearchVectorStoreObservationIT {
 		@Bean
 		public ElasticsearchVectorStore vectorStoreDefault(EmbeddingModel embeddingModel, RestClient restClient,
 				ObservationRegistry observationRegistry) {
-			return ElasticsearchVectorStore.builder()
-				.restClient(restClient)
-				.embeddingModel(embeddingModel)
+			return ElasticsearchVectorStore.builder(restClient, embeddingModel)
 				.initializeSchema(true)
 				.options(new ElasticsearchVectorStoreOptions())
 				.observationRegistry(observationRegistry)

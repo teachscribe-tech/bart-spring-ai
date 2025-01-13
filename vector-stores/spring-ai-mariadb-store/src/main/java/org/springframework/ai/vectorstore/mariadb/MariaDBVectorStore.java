@@ -1,5 +1,5 @@
 /*
- * Copyright 2023-2024 the original author or authors.
+ * Copyright 2023-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,16 +16,21 @@
 
 package org.springframework.ai.vectorstore.mariadb;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.json.JsonMapper;
-import io.micrometer.observation.ObservationRegistry;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 import org.springframework.ai.document.Document;
 import org.springframework.ai.embedding.BatchingStrategy;
 import org.springframework.ai.embedding.EmbeddingModel;
@@ -39,7 +44,6 @@ import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.filter.FilterExpressionConverter;
 import org.springframework.ai.vectorstore.observation.AbstractObservationVectorStore;
 import org.springframework.ai.vectorstore.observation.VectorStoreObservationContext;
-import org.springframework.ai.vectorstore.observation.VectorStoreObservationConvention;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -73,8 +77,7 @@ import org.springframework.util.StringUtils;
  * Basic usage example:
  * </p>
  * <pre>{@code
- * MariaDBVectorStore vectorStore = MariaDBVectorStore.builder(jdbcTemplate)
- *     .embeddingModel(embeddingModel)
+ * MariaDBVectorStore vectorStore = MariaDBVectorStore.builder(jdbcTemplate, embeddingModel)
  *     .initializeSchema(true)
  *     .build();
  *
@@ -97,8 +100,7 @@ import org.springframework.util.StringUtils;
  * Advanced configuration example:
  * </p>
  * <pre>{@code
- * MariaDBVectorStore vectorStore = MariaDBVectorStore.builder(jdbcTemplate)
- *     .embeddingModel(embeddingModel)
+ * MariaDBVectorStore vectorStore = MariaDBVectorStore.builder(jdbcTemplate, embeddingModel)
  *     .schemaName("mydb")
  *     .distanceType(MariaDBDistanceType.COSINE)
  *     .dimensions(1536)
@@ -191,86 +193,7 @@ public class MariaDBVectorStore extends AbstractObservationVectorStore implement
 
 	private final MariaDBSchemaValidator schemaValidator;
 
-	private final BatchingStrategy batchingStrategy;
-
 	private final int maxDocumentBatchSize;
-
-	/**
-	 * @deprecated Use {@link #builder(JdbcTemplate)} instead
-	 */
-	@Deprecated(forRemoval = true, since = "1.0.0-M5")
-	public MariaDBVectorStore(JdbcTemplate jdbcTemplate, EmbeddingModel embeddingModel) {
-		this(jdbcTemplate, embeddingModel, INVALID_EMBEDDING_DIMENSION, MariaDBDistanceType.COSINE, false, false);
-	}
-
-	/**
-	 * @deprecated Use {@link #builder(JdbcTemplate)} instead
-	 */
-	@Deprecated(forRemoval = true, since = "1.0.0-M5")
-	public MariaDBVectorStore(JdbcTemplate jdbcTemplate, EmbeddingModel embeddingModel, int dimensions) {
-		this(jdbcTemplate, embeddingModel, dimensions, MariaDBDistanceType.COSINE, false, false);
-	}
-
-	/**
-	 * @deprecated Use {@link #builder(JdbcTemplate)} instead
-	 */
-	@Deprecated(forRemoval = true, since = "1.0.0-M5")
-	public MariaDBVectorStore(JdbcTemplate jdbcTemplate, EmbeddingModel embeddingModel, int dimensions,
-			MariaDBDistanceType distanceType, boolean removeExistingVectorStoreTable, boolean initializeSchema) {
-		this(DEFAULT_TABLE_NAME, jdbcTemplate, embeddingModel, dimensions, distanceType, removeExistingVectorStoreTable,
-				initializeSchema);
-	}
-
-	/**
-	 * @deprecated Use {@link #builder(JdbcTemplate)} instead
-	 */
-	@Deprecated(forRemoval = true, since = "1.0.0-M5")
-	public MariaDBVectorStore(String vectorTableName, JdbcTemplate jdbcTemplate, EmbeddingModel embeddingModel,
-			int dimensions, MariaDBDistanceType distanceType, boolean removeExistingVectorStoreTable,
-			boolean initializeSchema) {
-		this(null, vectorTableName, DEFAULT_SCHEMA_VALIDATION, jdbcTemplate, embeddingModel, dimensions, distanceType,
-				removeExistingVectorStoreTable, initializeSchema);
-	}
-
-	/**
-	 * @deprecated Use {@link #builder(JdbcTemplate)} instead
-	 */
-	@Deprecated(forRemoval = true, since = "1.0.0-M5")
-	private MariaDBVectorStore(String schemaName, String vectorTableName, boolean vectorTableValidationsEnabled,
-			JdbcTemplate jdbcTemplate, EmbeddingModel embeddingModel, int dimensions, MariaDBDistanceType distanceType,
-			boolean removeExistingVectorStoreTable, boolean initializeSchema) {
-		this(schemaName, vectorTableName, vectorTableValidationsEnabled, jdbcTemplate, embeddingModel, dimensions,
-				distanceType, removeExistingVectorStoreTable, initializeSchema, ObservationRegistry.NOOP, null,
-				new TokenCountBatchingStrategy(), MAX_DOCUMENT_BATCH_SIZE, DEFAULT_COLUMN_EMBEDDING,
-				DEFAULT_COLUMN_METADATA, DEFAULT_COLUMN_ID, DEFAULT_COLUMN_CONTENT);
-	}
-
-	/**
-	 * @deprecated Use {@link #builder(JdbcTemplate)} instead
-	 */
-	@Deprecated(forRemoval = true, since = "1.0.0-M5")
-	private MariaDBVectorStore(String schemaName, String vectorTableName, boolean vectorTableValidationsEnabled,
-			JdbcTemplate jdbcTemplate, EmbeddingModel embeddingModel, int dimensions, MariaDBDistanceType distanceType,
-			boolean removeExistingVectorStoreTable, boolean initializeSchema, ObservationRegistry observationRegistry,
-			VectorStoreObservationConvention customObservationConvention, BatchingStrategy batchingStrategy,
-			int maxDocumentBatchSize, String contentFieldName, String embeddingFieldName, String idFieldName,
-			String metadataFieldName) {
-
-		this(builder(jdbcTemplate).vectorTableName(vectorTableName)
-			.embeddingModel(embeddingModel)
-			.dimensions(dimensions)
-			.distanceType(distanceType)
-			.removeExistingVectorStoreTable(removeExistingVectorStoreTable)
-			.initializeSchema(initializeSchema)
-			.observationRegistry(observationRegistry)
-			.customObservationConvention(customObservationConvention)
-			.batchingStrategy(batchingStrategy)
-			.maxDocumentBatchSize(maxDocumentBatchSize)
-			.contentFieldName(contentFieldName)
-			.embeddingFieldName(embeddingFieldName)
-			.idFieldName(idFieldName)
-			.metadataFieldName(metadataFieldName));
-	}
 
 	/**
 	 * Protected constructor for creating a MariaDBVectorStore instance using the builder
@@ -287,12 +210,11 @@ public class MariaDBVectorStore extends AbstractObservationVectorStore implement
 
 		this.objectMapper = JsonMapper.builder().addModules(JacksonUtils.instantiateAvailableModules()).build();
 
-		this.vectorTableName = (null == builder.vectorTableName || builder.vectorTableName.isEmpty())
-				? DEFAULT_TABLE_NAME
+		this.vectorTableName = builder.vectorTableName.isEmpty() ? DEFAULT_TABLE_NAME
 				: MariaDBSchemaValidator.validateAndEnquoteIdentifier(builder.vectorTableName.trim(), false);
 
 		logger.info("Using the vector table name: {}. Is empty: {}", this.vectorTableName,
-				(vectorTableName == null || vectorTableName.isEmpty()));
+				builder.vectorTableName.isEmpty());
 
 		this.schemaName = builder.schemaName == null ? null
 				: MariaDBSchemaValidator.validateAndEnquoteIdentifier(builder.schemaName, false);
@@ -302,8 +224,7 @@ public class MariaDBVectorStore extends AbstractObservationVectorStore implement
 		this.distanceType = builder.distanceType;
 		this.removeExistingVectorStoreTable = builder.removeExistingVectorStoreTable;
 		this.initializeSchema = builder.initializeSchema;
-		this.schemaValidator = new MariaDBSchemaValidator(jdbcTemplate);
-		this.batchingStrategy = builder.batchingStrategy;
+		this.schemaValidator = new MariaDBSchemaValidator(this.jdbcTemplate);
 		this.maxDocumentBatchSize = builder.maxDocumentBatchSize;
 
 		this.contentFieldName = MariaDBSchemaValidator.validateAndEnquoteIdentifier(builder.contentFieldName, false);
@@ -311,7 +232,7 @@ public class MariaDBVectorStore extends AbstractObservationVectorStore implement
 				false);
 		this.idFieldName = MariaDBSchemaValidator.validateAndEnquoteIdentifier(builder.idFieldName, false);
 		this.metadataFieldName = MariaDBSchemaValidator.validateAndEnquoteIdentifier(builder.metadataFieldName, false);
-		filterExpressionConverter = new MariaDBFilterExpressionConverter(this.metadataFieldName);
+		this.filterExpressionConverter = new MariaDBFilterExpressionConverter(this.metadataFieldName);
 	}
 
 	/**
@@ -319,8 +240,8 @@ public class MariaDBVectorStore extends AbstractObservationVectorStore implement
 	 * MariaDBVectorStore.
 	 * @return a new MariaDBBuilder instance
 	 */
-	public static MariaDBBuilder builder(JdbcTemplate jdbcTemplate) {
-		return new MariaDBBuilder(jdbcTemplate);
+	public static MariaDBBuilder builder(JdbcTemplate jdbcTemplate, EmbeddingModel embeddingModel) {
+		return new MariaDBBuilder(jdbcTemplate, embeddingModel);
 	}
 
 	public MariaDBDistanceType getDistanceType() {
@@ -342,14 +263,14 @@ public class MariaDBVectorStore extends AbstractObservationVectorStore implement
 		List<MariaDBDocument> mariaDBDocuments = new ArrayList<>(documents.size());
 		if (embeddings.size() == documents.size()) {
 			for (Document document : documents) {
-				mariaDBDocuments.add(new MariaDBDocument(document.getId(), document.getContent(),
-						document.getMetadata(), embeddings.get(documents.indexOf(document))));
+				mariaDBDocuments.add(new MariaDBDocument(document.getId(), document.getText(), document.getMetadata(),
+						embeddings.get(documents.indexOf(document))));
 			}
 		}
 		else {
 			for (Document document : documents) {
 				mariaDBDocuments
-					.add(new MariaDBDocument(document.getId(), document.getContent(), document.getMetadata(), null));
+					.add(new MariaDBDocument(document.getId(), document.getText(), document.getMetadata(), null));
 			}
 		}
 
@@ -421,10 +342,10 @@ public class MariaDBVectorStore extends AbstractObservationVectorStore implement
 
 		double distance = 1 - request.getSimilarityThreshold();
 		final String sql = String.format(
-				"SELECT * FROM (select %s, %s, %s, %s, vec_distance_%s(%s, ?) as distance "
+				"SELECT * FROM (select %s, %s, %s, vec_distance_%s(%s, ?) as distance "
 						+ "from %s) as t where distance < ? %sorder by distance asc LIMIT ?",
-				this.idFieldName, this.contentFieldName, this.metadataFieldName, this.embeddingFieldName, distanceType,
-				this.embeddingFieldName, getFullyQualifiedTableName(), jsonPathFilter);
+				this.idFieldName, this.contentFieldName, this.metadataFieldName, distanceType, this.embeddingFieldName,
+				getFullyQualifiedTableName(), jsonPathFilter);
 
 		logger.debug("SQL query: " + sql);
 
@@ -444,8 +365,8 @@ public class MariaDBVectorStore extends AbstractObservationVectorStore implement
 		logger.info("vectorTableValidationsEnabled {}", this.schemaValidation);
 
 		if (this.schemaValidation) {
-			this.schemaValidator.validateTableSchema(this.schemaName, this.vectorTableName, idFieldName,
-					contentFieldName, metadataFieldName, embeddingFieldName, this.embeddingDimensions());
+			this.schemaValidator.validateTableSchema(this.schemaName, this.vectorTableName, this.idFieldName,
+					this.contentFieldName, this.metadataFieldName, this.embeddingFieldName, this.embeddingDimensions());
 		}
 
 		if (!this.initializeSchema) {
@@ -453,8 +374,9 @@ public class MariaDBVectorStore extends AbstractObservationVectorStore implement
 			return;
 		}
 
-		if (this.schemaName != null)
+		if (this.schemaName != null) {
 			this.jdbcTemplate.execute(String.format("CREATE SCHEMA IF NOT EXISTS %s", this.schemaName));
+		}
 
 		// Remove existing VectorStoreTable
 		if (this.removeExistingVectorStoreTable) {
@@ -469,15 +391,16 @@ public class MariaDBVectorStore extends AbstractObservationVectorStore implement
 					%s VECTOR(%d) NOT NULL,
 					VECTOR INDEX %s_idx (%s)
 				) ENGINE=InnoDB
-				""", this.getFullyQualifiedTableName(), idFieldName, contentFieldName, metadataFieldName,
-				embeddingFieldName, this.embeddingDimensions(),
-				(vectorTableName + "_" + embeddingFieldName).replaceAll("[^\\n\\r\\t\\p{Print}]", ""),
-				embeddingFieldName));
+				""", this.getFullyQualifiedTableName(), this.idFieldName, this.contentFieldName, this.metadataFieldName,
+				this.embeddingFieldName, this.embeddingDimensions(),
+				(this.vectorTableName + "_" + this.embeddingFieldName).replaceAll("[^\\n\\r\\t\\p{Print}]", ""),
+				this.embeddingFieldName));
 	}
 
 	private String getFullyQualifiedTableName() {
-		if (this.schemaName != null)
+		if (this.schemaName != null) {
 			return this.schemaName + "." + this.vectorTableName;
+		}
 		return this.vectorTableName;
 	}
 
@@ -504,10 +427,10 @@ public class MariaDBVectorStore extends AbstractObservationVectorStore implement
 	public VectorStoreObservationContext.Builder createObservationContextBuilder(String operationName) {
 
 		return VectorStoreObservationContext.builder(VectorStoreProvider.MARIADB.value(), operationName)
-			.withCollectionName(this.vectorTableName)
-			.withDimensions(this.embeddingDimensions())
-			.withNamespace(this.schemaName)
-			.withSimilarityMetric(getSimilarityMetric());
+			.collectionName(this.vectorTableName)
+			.dimensions(this.embeddingDimensions())
+			.namespace(this.schemaName)
+			.similarityMetric(getSimilarityMetric());
 	}
 
 	private String getSimilarityMetric() {
@@ -519,7 +442,7 @@ public class MariaDBVectorStore extends AbstractObservationVectorStore implement
 
 	public enum MariaDBDistanceType {
 
-		EUCLIDEAN, COSINE;
+		EUCLIDEAN, COSINE
 
 	}
 
@@ -527,7 +450,7 @@ public class MariaDBVectorStore extends AbstractObservationVectorStore implement
 
 		private final ObjectMapper objectMapper;
 
-		public DocumentRowMapper(ObjectMapper objectMapper) {
+		DocumentRowMapper(ObjectMapper objectMapper) {
 			this.objectMapper = objectMapper;
 		}
 
@@ -536,15 +459,11 @@ public class MariaDBVectorStore extends AbstractObservationVectorStore implement
 			String id = rs.getString(1);
 			String content = rs.getString(2);
 			Map<String, Object> metadata = toMap(rs.getString(3));
-			float[] embedding = rs.getObject(4, float[].class);
-			float distance = rs.getFloat(5);
+			float distance = rs.getFloat(4);
 
 			metadata.put("distance", distance);
 
-			Document document = new Document(id, content, metadata);
-			document.setEmbedding(embedding);
-
-			return document;
+			return new Document(id, content, metadata);
 		}
 
 		private Map<String, Object> toMap(String source) {
@@ -576,6 +495,7 @@ public class MariaDBVectorStore extends AbstractObservationVectorStore implement
 
 		private final JdbcTemplate jdbcTemplate;
 
+		@Nullable
 		private String schemaName;
 
 		private String vectorTableName = DEFAULT_TABLE_NAME;
@@ -590,8 +510,6 @@ public class MariaDBVectorStore extends AbstractObservationVectorStore implement
 
 		private boolean initializeSchema = false;
 
-		private BatchingStrategy batchingStrategy = new TokenCountBatchingStrategy();
-
 		private int maxDocumentBatchSize = MAX_DOCUMENT_BATCH_SIZE;
 
 		/**
@@ -599,7 +517,8 @@ public class MariaDBVectorStore extends AbstractObservationVectorStore implement
 		 * @param jdbcTemplate the JDBC template for database operations
 		 * @throws IllegalArgumentException if jdbcTemplate is null
 		 */
-		MariaDBBuilder(JdbcTemplate jdbcTemplate) {
+		private MariaDBBuilder(JdbcTemplate jdbcTemplate, EmbeddingModel embeddingModel) {
+			super(embeddingModel);
 			Assert.notNull(jdbcTemplate, "JdbcTemplate must not be null");
 			this.jdbcTemplate = jdbcTemplate;
 		}
@@ -679,18 +598,6 @@ public class MariaDBVectorStore extends AbstractObservationVectorStore implement
 		}
 
 		/**
-		 * Configures the strategy for batching operations.
-		 * @param batchingStrategy the batching strategy to use
-		 * @return this builder instance
-		 * @throws IllegalArgumentException if batchingStrategy is null
-		 */
-		public MariaDBBuilder batchingStrategy(BatchingStrategy batchingStrategy) {
-			Assert.notNull(batchingStrategy, "BatchingStrategy must not be null");
-			this.batchingStrategy = batchingStrategy;
-			return this;
-		}
-
-		/**
 		 * Configures the maximum batch size for document operations.
 		 * @param maxDocumentBatchSize the maximum number of documents to process in a
 		 * batch
@@ -762,177 +669,7 @@ public class MariaDBVectorStore extends AbstractObservationVectorStore implement
 		 */
 		@Override
 		public MariaDBVectorStore build() {
-			validate();
 			return new MariaDBVectorStore(this);
-		}
-
-	}
-
-	@Deprecated(forRemoval = true, since = "1.0.0-M5")
-	public static class Builder {
-
-		private String contentFieldName = DEFAULT_COLUMN_CONTENT;
-
-		private String embeddingFieldName = DEFAULT_COLUMN_EMBEDDING;
-
-		private String idFieldName = DEFAULT_COLUMN_ID;
-
-		private String metadataFieldName = DEFAULT_COLUMN_METADATA;
-
-		private final JdbcTemplate jdbcTemplate;
-
-		private final EmbeddingModel embeddingModel;
-
-		private String schemaName = null;
-
-		private String vectorTableName;
-
-		private boolean vectorTableValidationsEnabled = MariaDBVectorStore.DEFAULT_SCHEMA_VALIDATION;
-
-		private int dimensions = MariaDBVectorStore.INVALID_EMBEDDING_DIMENSION;
-
-		private MariaDBDistanceType distanceType = MariaDBDistanceType.COSINE;
-
-		private boolean removeExistingVectorStoreTable = false;
-
-		private boolean initializeSchema;
-
-		private ObservationRegistry observationRegistry = ObservationRegistry.NOOP;
-
-		private BatchingStrategy batchingStrategy = new TokenCountBatchingStrategy();
-
-		private int maxDocumentBatchSize = MAX_DOCUMENT_BATCH_SIZE;
-
-		@Nullable
-		private VectorStoreObservationConvention searchObservationConvention;
-
-		// Builder constructor with mandatory parameters
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder(JdbcTemplate jdbcTemplate, EmbeddingModel embeddingModel) {
-			if (jdbcTemplate == null || embeddingModel == null) {
-				throw new IllegalArgumentException("JdbcTemplate and EmbeddingModel must not be null");
-			}
-			this.jdbcTemplate = jdbcTemplate;
-			this.embeddingModel = embeddingModel;
-		}
-
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withSchemaName(String schemaName) {
-			this.schemaName = schemaName;
-			return this;
-		}
-
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withVectorTableName(String vectorTableName) {
-			this.vectorTableName = vectorTableName;
-			return this;
-		}
-
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withVectorTableValidationsEnabled(boolean vectorTableValidationsEnabled) {
-			this.vectorTableValidationsEnabled = vectorTableValidationsEnabled;
-			return this;
-		}
-
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withDimensions(int dimensions) {
-			this.dimensions = dimensions;
-			return this;
-		}
-
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withDistanceType(MariaDBDistanceType distanceType) {
-			this.distanceType = distanceType;
-			return this;
-		}
-
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withRemoveExistingVectorStoreTable(boolean removeExistingVectorStoreTable) {
-			this.removeExistingVectorStoreTable = removeExistingVectorStoreTable;
-			return this;
-		}
-
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withInitializeSchema(boolean initializeSchema) {
-			this.initializeSchema = initializeSchema;
-			return this;
-		}
-
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withObservationRegistry(ObservationRegistry observationRegistry) {
-			this.observationRegistry = observationRegistry;
-			return this;
-		}
-
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withSearchObservationConvention(VectorStoreObservationConvention customObservationConvention) {
-			this.searchObservationConvention = customObservationConvention;
-			return this;
-		}
-
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withBatchingStrategy(BatchingStrategy batchingStrategy) {
-			this.batchingStrategy = batchingStrategy;
-			return this;
-		}
-
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withMaxDocumentBatchSize(int maxDocumentBatchSize) {
-			this.maxDocumentBatchSize = maxDocumentBatchSize;
-			return this;
-		}
-
-		/**
-		 * Configures the content field name to use.
-		 * @param name the content field name to use
-		 * @return this builder
-		 */
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withContentFieldName(String name) {
-			this.contentFieldName = name;
-			return this;
-		}
-
-		/**
-		 * Configures the embedding field name to use.
-		 * @param name the embedding field name to use
-		 * @return this builder
-		 */
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withEmbeddingFieldName(String name) {
-			this.embeddingFieldName = name;
-			return this;
-		}
-
-		/**
-		 * Configures the id field name to use.
-		 * @param name the id field name to use
-		 * @return this builder
-		 */
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withIdFieldName(String name) {
-			this.idFieldName = name;
-			return this;
-		}
-
-		/**
-		 * Configures the metadata field name to use.
-		 * @param name the metadata field name to use
-		 * @return this builder
-		 */
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withMetadataFieldName(String name) {
-			this.metadataFieldName = name;
-			return this;
-		}
-
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public MariaDBVectorStore build() {
-			return new MariaDBVectorStore(this.schemaName, this.vectorTableName, this.vectorTableValidationsEnabled,
-					this.jdbcTemplate, this.embeddingModel, this.dimensions, this.distanceType,
-					this.removeExistingVectorStoreTable, this.initializeSchema, this.observationRegistry,
-					this.searchObservationConvention, this.batchingStrategy, this.maxDocumentBatchSize,
-					this.contentFieldName, this.embeddingFieldName, this.idFieldName, this.metadataFieldName);
 		}
 
 	}
@@ -945,7 +682,8 @@ public class MariaDBVectorStore extends AbstractObservationVectorStore implement
 	 * @param metadata The metadata of the document
 	 * @param embedding The vectors representing the content of the document
 	 */
-	public record MariaDBDocument(String id, String content, Map<String, Object> metadata, float[] embedding) {
+	public record MariaDBDocument(String id, @Nullable String content, Map<String, Object> metadata,
+			@Nullable float[] embedding) {
 	}
 
 }

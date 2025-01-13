@@ -38,12 +38,12 @@ import org.springframework.ai.observation.conventions.SpringAiKind;
 import org.springframework.ai.observation.conventions.VectorStoreProvider;
 import org.springframework.ai.observation.conventions.VectorStoreSimilarityMetric;
 import org.springframework.ai.transformers.TransformersEmbeddingModel;
-import org.springframework.ai.vectorstore.redis.RedisVectorStore.MetadataField;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.vectorstore.observation.DefaultVectorStoreObservationConvention;
 import org.springframework.ai.vectorstore.observation.VectorStoreObservationDocumentation.HighCardinalityKeyNames;
 import org.springframework.ai.vectorstore.observation.VectorStoreObservationDocumentation.LowCardinalityKeyNames;
+import org.springframework.ai.vectorstore.redis.RedisVectorStore.MetadataField;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -130,7 +130,7 @@ public class RedisVectorStoreObservationIT {
 			observationRegistry.clear();
 
 			List<Document> results = vectorStore
-				.similaritySearch(SearchRequest.query("What is Great Depression").withTopK(1));
+				.similaritySearch(SearchRequest.builder().query("What is Great Depression").topK(1).build());
 
 			assertThat(results).isNotEmpty();
 
@@ -176,9 +176,9 @@ public class RedisVectorStoreObservationIT {
 		@Bean
 		public RedisVectorStore vectorStore(EmbeddingModel embeddingModel,
 				JedisConnectionFactory jedisConnectionFactory, ObservationRegistry observationRegistry) {
-			return RedisVectorStore.builder()
-				.jedis(new JedisPooled(jedisConnectionFactory.getHostName(), jedisConnectionFactory.getPort()))
-				.embeddingModel(embeddingModel)
+			return RedisVectorStore
+				.builder(new JedisPooled(jedisConnectionFactory.getHostName(), jedisConnectionFactory.getPort()),
+						embeddingModel)
 				.observationRegistry(observationRegistry)
 				.customObservationConvention(null)
 				.initializeSchema(true)

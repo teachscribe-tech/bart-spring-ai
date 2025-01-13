@@ -84,9 +84,10 @@ class PgVectorStoreWithChatMemoryAdvisorIT {
 
 	private static PgVectorStore createPgVectorStoreUsingTestcontainer(EmbeddingModel embeddingModel) throws Exception {
 		JdbcTemplate jdbcTemplate = createJdbcTemplateWithConnectionToTestcontainer();
-		PgVectorStore vectorStore = new PgVectorStore.Builder(jdbcTemplate, embeddingModel).withDimensions(3) // match
+		PgVectorStore vectorStore = PgVectorStore.builder(jdbcTemplate, embeddingModel)
+			.dimensions(3) // match
 			// embeddings
-			.withInitializeSchema(true)
+			.initializeSchema(true)
 			.build();
 		initStore(vectorStore);
 		return vectorStore;
@@ -145,9 +146,9 @@ class PgVectorStoreWithChatMemoryAdvisorIT {
 	private @NotNull EmbeddingModel embeddingNModelShouldAlwaysReturnFakedEmbed() {
 		EmbeddingModel embeddingModel = mock(EmbeddingModel.class);
 
-		Mockito.doAnswer(invocationOnMock -> {
-			return List.of(this.embed, this.embed);
-		}).when(embeddingModel).embed(ArgumentMatchers.any(), any(), any());
+		Mockito.doAnswer(invocationOnMock -> List.of(this.embed, this.embed))
+			.when(embeddingModel)
+			.embed(ArgumentMatchers.any(), any(), any());
 		given(embeddingModel.embed(any(String.class))).willReturn(this.embed);
 		return embeddingModel;
 	}

@@ -30,13 +30,13 @@ import com.datastax.oss.driver.api.core.servererrors.SyntaxError;
 import com.datastax.oss.driver.api.core.type.DataTypes;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.document.DocumentMetadata;
 import org.testcontainers.containers.CassandraContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import org.springframework.ai.cassandra.CassandraImage;
 import org.springframework.ai.document.Document;
+import org.springframework.ai.document.DocumentMetadata;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.transformers.TransformersEmbeddingModel;
 import org.springframework.ai.vectorstore.SearchRequest;
@@ -85,23 +85,23 @@ class CassandraVectorStoreIT {
 		}
 	}
 
-	private static CassandraVectorStore.CassandraBuilder storeBuilder(CqlSession cqlSession) {
-		return CassandraVectorStore.builder()
+	private static CassandraVectorStore.Builder storeBuilder(CqlSession cqlSession, EmbeddingModel embeddingModel) {
+		return CassandraVectorStore.builder(embeddingModel)
 			.session(cqlSession)
 			.keyspace("test_" + CassandraVectorStore.DEFAULT_KEYSPACE_NAME);
 	}
 
 	private static CassandraVectorStore createTestStore(ApplicationContext context, SchemaColumn... metadataFields) {
-		CassandraVectorStore.CassandraBuilder builder = storeBuilder(context.getBean(CqlSession.class))
+		CassandraVectorStore.Builder builder = storeBuilder(context.getBean(CqlSession.class),
+				context.getBean(EmbeddingModel.class))
 			.addMetadataColumns(metadataFields);
 
 		return createTestStore(context, builder);
 	}
 
 	private static CassandraVectorStore createTestStore(ApplicationContext context,
-			CassandraVectorStore.CassandraBuilder builder) {
+			CassandraVectorStore.Builder builder) {
 		CassandraVectorStore.dropKeyspace(builder);
-		builder.embeddingModel(context.getBean(EmbeddingModel.class));
 		CassandraVectorStore store = builder.build();
 		return store;
 	}
@@ -125,13 +125,14 @@ class CassandraVectorStoreIT {
 				List<Document> documents = documents();
 				store.add(documents);
 
-				List<Document> results = store.similaritySearch(SearchRequest.query("Spring").withTopK(1));
+				List<Document> results = store
+					.similaritySearch(SearchRequest.builder().query("Spring").topK(1).build());
 
 				assertThat(results).hasSize(1);
 				Document resultDoc = results.get(0);
 				assertThat(resultDoc.getId()).isEqualTo(documents().get(0).getId());
 
-				assertThat(resultDoc.getContent()).contains(
+				assertThat(resultDoc.getText()).contains(
 						"Spring AI provides abstractions that serve as the foundation for developing AI applications.");
 
 				assertThat(resultDoc.getMetadata()).hasSize(2);
@@ -140,7 +141,7 @@ class CassandraVectorStoreIT {
 				// Remove all documents from the store
 				store.delete(documents().stream().map(doc -> doc.getId()).toList());
 
-				results = store.similaritySearch(SearchRequest.query("Spring").withTopK(1));
+				results = store.similaritySearch(SearchRequest.builder().query("Spring").topK(1).build());
 				assertThat(results).isEmpty();
 			}
 		});
@@ -149,20 +150,22 @@ class CassandraVectorStoreIT {
 	@Test
 	void addAndSearchReturnEmbeddings() {
 		this.contextRunner.run(context -> {
-			CassandraVectorStore.CassandraBuilder builder = storeBuilder(context.getBean(CqlSession.class))
+			CassandraVectorStore.Builder builder = storeBuilder(context.getBean(CqlSession.class),
+					context.getBean(EmbeddingModel.class))
 				.returnEmbeddings(true);
 
 			try (CassandraVectorStore store = createTestStore(context, builder)) {
 				List<Document> documents = documents();
 				store.add(documents);
 
-				List<Document> results = store.similaritySearch(SearchRequest.query("Spring").withTopK(1));
+				List<Document> results = store
+					.similaritySearch(SearchRequest.builder().query("Spring").topK(1).build());
 
 				assertThat(results).hasSize(1);
 				Document resultDoc = results.get(0);
 				assertThat(resultDoc.getId()).isEqualTo(documents().get(0).getId());
 
-				assertThat(resultDoc.getContent()).contains(
+				assertThat(resultDoc.getText()).contains(
 						"Spring AI provides abstractions that serve as the foundation for developing AI applications.");
 
 				assertThat(resultDoc.getMetadata()).hasSize(1);
@@ -171,7 +174,7 @@ class CassandraVectorStoreIT {
 				// Remove all documents from the store
 				store.delete(documents().stream().map(doc -> doc.getId()).toList());
 
-				results = store.similaritySearch(SearchRequest.query("Spring").withTopK(1));
+				results = store.similaritySearch(SearchRequest.builder().query("Spring").topK(1).build());
 				assertThat(results).isEmpty();
 			}
 		});
@@ -193,42 +196,50 @@ class CassandraVectorStoreIT {
 
 				store.add(List.of(bgDocument, nlDocument, bgDocument2));
 
-				List<Document> results = store.similaritySearch(SearchRequest.query("The World").withTopK(5));
+				List<Document> results = store
+					.similaritySearch(SearchRequest.builder().query("The World").topK(5).build());
 				assertThat(results).hasSize(3);
 
-				results = store.similaritySearch(SearchRequest.query("The World")
-					.withTopK(5)
-					.withSimilarityThresholdAll()
-					.withFilterExpression(java.lang.String.format("%s == 'NL'", CassandraVectorStore.DEFAULT_ID_NAME)));
+				results = store.similaritySearch(SearchRequest.builder()
+					.query("The World")
+					.topK(5)
+					.similarityThresholdAll()
+					.filterExpression(java.lang.String.format("%s == 'NL'", CassandraVectorStore.DEFAULT_ID_NAME))
+					.build());
 
 				assertThat(results).hasSize(1);
 				assertThat(results.get(0).getId()).isEqualTo(nlDocument.getId());
 
-				results = store.similaritySearch(SearchRequest.query("The World")
-					.withTopK(5)
-					.withSimilarityThresholdAll()
-					.withFilterExpression(
-							java.lang.String.format("%s == 'BG2'", CassandraVectorStore.DEFAULT_ID_NAME)));
+				results = store.similaritySearch(SearchRequest.builder()
+					.query("The World")
+					.topK(5)
+					.similarityThresholdAll()
+					.filterExpression(java.lang.String.format("%s == 'BG2'", CassandraVectorStore.DEFAULT_ID_NAME))
+					.build());
 
 				assertThat(results).hasSize(1);
 				assertThat(results.get(0).getId()).isEqualTo(bgDocument2.getId());
 
-				results = store.similaritySearch(SearchRequest.query("The World")
-					.withTopK(5)
-					.withSimilarityThresholdAll()
-					.withFilterExpression(java.lang.String.format("%s == 'BG' && year == 2020",
-							CassandraVectorStore.DEFAULT_ID_NAME)));
+				results = store.similaritySearch(SearchRequest.builder()
+					.query("The World")
+					.topK(5)
+					.similarityThresholdAll()
+					.filterExpression(
+							java.lang.String.format("%s == 'BG' && year == 2020", CassandraVectorStore.DEFAULT_ID_NAME))
+					.build());
 
 				assertThat(results).hasSize(1);
 				assertThat(results.get(0).getId()).isEqualTo(bgDocument.getId());
 
 				// cassandra server will throw an error
 				Assertions.assertThrows(SyntaxError.class,
-						() -> store.similaritySearch(SearchRequest.query("The World")
-							.withTopK(5)
-							.withSimilarityThresholdAll()
-							.withFilterExpression(java.lang.String.format("NOT(%s == 'BG' && year == 2020)",
-									CassandraVectorStore.DEFAULT_ID_NAME))));
+						() -> store.similaritySearch(SearchRequest.builder()
+							.query("The World")
+							.topK(5)
+							.similarityThresholdAll()
+							.filterExpression(java.lang.String.format("NOT(%s == 'BG' && year == 2020)",
+									CassandraVectorStore.DEFAULT_ID_NAME))
+							.build()));
 			}
 		});
 	}
@@ -247,14 +258,17 @@ class CassandraVectorStoreIT {
 
 				store.add(List.of(bgDocument, nlDocument, bgDocument2));
 
-				List<Document> results = store.similaritySearch(SearchRequest.query("The World").withTopK(5));
+				List<Document> results = store
+					.similaritySearch(SearchRequest.builder().query("The World").topK(5).build());
 				assertThat(results).hasSize(3);
 
 				Assertions.assertThrows(InvalidQueryException.class,
-						() -> store.similaritySearch(SearchRequest.query("The World")
-							.withTopK(5)
-							.withSimilarityThresholdAll()
-							.withFilterExpression("country == 'NL'")));
+						() -> store.similaritySearch(SearchRequest.builder()
+							.query("The World")
+							.topK(5)
+							.similarityThresholdAll()
+							.filterExpression("country == 'NL'")
+							.build()));
 			}
 		});
 	}
@@ -276,46 +290,57 @@ class CassandraVectorStoreIT {
 
 				store.add(List.of(bgDocument, nlDocument, bgDocument2));
 
-				List<Document> results = store.similaritySearch(SearchRequest.query("The World").withTopK(5));
+				List<Document> results = store
+					.similaritySearch(SearchRequest.builder().query("The World").topK(5).build());
 				assertThat(results).hasSize(3);
 
-				results = store.similaritySearch(SearchRequest.query("The World")
-					.withTopK(5)
-					.withSimilarityThresholdAll()
-					.withFilterExpression("country == 'NL'"));
+				results = store.similaritySearch(SearchRequest.builder()
+					.query("The World")
+					.topK(5)
+					.similarityThresholdAll()
+					.filterExpression("country == 'NL'")
+					.build());
 				assertThat(results).hasSize(1);
 				assertThat(results.get(0).getId()).isEqualTo(nlDocument.getId());
 
-				results = store.similaritySearch(SearchRequest.query("The World")
-					.withTopK(5)
-					.withSimilarityThresholdAll()
-					.withFilterExpression("country == 'BG'"));
+				results = store.similaritySearch(SearchRequest.builder()
+					.query("The World")
+					.topK(5)
+					.similarityThresholdAll()
+					.filterExpression("country == 'BG'")
+					.build());
 
 				assertThat(results).hasSize(2);
 				assertThat(results.get(0).getId()).isIn(bgDocument.getId(), bgDocument2.getId());
 				assertThat(results.get(1).getId()).isIn(bgDocument.getId(), bgDocument2.getId());
 
-				results = store.similaritySearch(SearchRequest.query("The World")
-					.withTopK(5)
-					.withSimilarityThresholdAll()
-					.withFilterExpression("country == 'BG' && year == 2020"));
+				results = store.similaritySearch(SearchRequest.builder()
+					.query("The World")
+					.topK(5)
+					.similarityThresholdAll()
+					.filterExpression("country == 'BG' && year == 2020")
+					.build());
 
 				assertThat(results).hasSize(1);
 				assertThat(results.get(0).getId()).isEqualTo(bgDocument.getId());
 
 				// cassandra server will throw an error
 				Assertions.assertThrows(SyntaxError.class,
-						() -> store.similaritySearch(SearchRequest.query("The World")
-							.withTopK(5)
-							.withSimilarityThresholdAll()
-							.withFilterExpression("country == 'BG' || year == 2020")));
+						() -> store.similaritySearch(SearchRequest.builder()
+							.query("The World")
+							.topK(5)
+							.similarityThresholdAll()
+							.filterExpression("country == 'BG' || year == 2020")
+							.build()));
 
 				// cassandra server will throw an error
 				Assertions.assertThrows(SyntaxError.class,
-						() -> store.similaritySearch(SearchRequest.query("The World")
-							.withTopK(5)
-							.withSimilarityThresholdAll()
-							.withFilterExpression("NOT(country == 'BG' && year == 2020)")));
+						() -> store.similaritySearch(SearchRequest.builder()
+							.query("The World")
+							.topK(5)
+							.similarityThresholdAll()
+							.filterExpression("NOT(country == 'BG' && year == 2020)")
+							.build()));
 			}
 		});
 	}
@@ -330,12 +355,13 @@ class CassandraVectorStoreIT {
 
 				store.add(List.of(document));
 
-				List<Document> results = store.similaritySearch(SearchRequest.query("Spring").withTopK(5));
+				List<Document> results = store
+					.similaritySearch(SearchRequest.builder().query("Spring").topK(5).build());
 
 				assertThat(results).hasSize(1);
 				Document resultDoc = results.get(0);
 				assertThat(resultDoc.getId()).isEqualTo(document.getId());
-				assertThat(resultDoc.getContent()).isEqualTo("Spring AI rocks!!");
+				assertThat(resultDoc.getText()).isEqualTo("Spring AI rocks!!");
 				assertThat(resultDoc.getMetadata()).containsKey("meta1");
 
 				Document sameIdDocument = new Document(document.getId(),
@@ -344,12 +370,12 @@ class CassandraVectorStoreIT {
 
 				store.add(List.of(sameIdDocument));
 
-				results = store.similaritySearch(SearchRequest.query("FooBar").withTopK(5));
+				results = store.similaritySearch(SearchRequest.builder().query("FooBar").topK(5).build());
 
 				assertThat(results).hasSize(1);
 				resultDoc = results.get(0);
 				assertThat(resultDoc.getId()).isEqualTo(document.getId());
-				assertThat(resultDoc.getContent()).isEqualTo("The World is Big and Salvation Lurks Around the Corner");
+				assertThat(resultDoc.getText()).isEqualTo("The World is Big and Salvation Lurks Around the Corner");
 				assertThat(resultDoc.getMetadata()).containsKeys("meta2", DocumentMetadata.DISTANCE.value());
 
 				store.delete(List.of(document.getId()));
@@ -364,7 +390,7 @@ class CassandraVectorStoreIT {
 				store.add(documents());
 
 				List<Document> fullResult = store
-					.similaritySearch(SearchRequest.query("Spring").withTopK(5).withSimilarityThresholdAll());
+					.similaritySearch(SearchRequest.builder().query("Spring").topK(5).similarityThresholdAll().build());
 
 				List<Double> scores = fullResult.stream().map(Document::getScore).toList();
 
@@ -372,14 +398,17 @@ class CassandraVectorStoreIT {
 
 				double similarityThreshold = (scores.get(0) + scores.get(1)) / 2;
 
-				List<Document> results = store.similaritySearch(
-						SearchRequest.query("Spring").withTopK(5).withSimilarityThreshold(similarityThreshold));
+				List<Document> results = store.similaritySearch(SearchRequest.builder()
+					.query("Spring")
+					.topK(5)
+					.similarityThreshold(similarityThreshold)
+					.build());
 
 				assertThat(results).hasSize(1);
 				Document resultDoc = results.get(0);
 				assertThat(resultDoc.getId()).isEqualTo(documents().get(0).getId());
 
-				assertThat(resultDoc.getContent()).contains(
+				assertThat(resultDoc.getText()).contains(
 						"Spring AI provides abstractions that serve as the foundation for developing AI applications.");
 
 				assertThat(resultDoc.getMetadata()).containsKeys("meta1", DocumentMetadata.DISTANCE.value());
@@ -395,12 +424,11 @@ class CassandraVectorStoreIT {
 		@Bean
 		public CassandraVectorStore store(CqlSession cqlSession, EmbeddingModel embeddingModel) {
 
-			CassandraVectorStore.CassandraBuilder builder = storeBuilder(cqlSession)
-				.addMetadataColumns(new CassandraVectorStore.SchemaColumn("meta1", DataTypes.TEXT),
-						new CassandraVectorStore.SchemaColumn("meta2", DataTypes.TEXT),
-						new CassandraVectorStore.SchemaColumn("country", DataTypes.TEXT),
-						new CassandraVectorStore.SchemaColumn("year", DataTypes.SMALLINT))
-				.embeddingModel(embeddingModel);
+			CassandraVectorStore.Builder builder = storeBuilder(cqlSession, embeddingModel).addMetadataColumns(
+					new CassandraVectorStore.SchemaColumn("meta1", DataTypes.TEXT),
+					new CassandraVectorStore.SchemaColumn("meta2", DataTypes.TEXT),
+					new CassandraVectorStore.SchemaColumn("country", DataTypes.TEXT),
+					new CassandraVectorStore.SchemaColumn("year", DataTypes.SMALLINT));
 
 			CassandraVectorStore.dropKeyspace(builder);
 			return builder.build();

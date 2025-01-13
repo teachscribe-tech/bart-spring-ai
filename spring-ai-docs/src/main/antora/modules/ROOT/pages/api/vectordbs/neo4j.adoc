@@ -71,7 +71,7 @@ List<Document> documents = List.of(
 vectorStore.add(documents);
 
 // Retrieve documents similar to a query
-List<Document> results = vectorStore.similaritySearch(SearchRequest.query("Spring").withTopK(5));
+List<Document> results = vectorStore.similaritySearch(SearchRequest.builder().query("Spring").topK(5).build());
 ----
 
 [[neo4jvector-properties]]
@@ -172,9 +172,7 @@ Then create the `Neo4jVectorStore` bean using the builder pattern:
 ----
 @Bean
 public VectorStore vectorStore(Driver driver, EmbeddingModel embeddingModel) {
-    return Neo4jVectorStore.builder()
-        .driver(driver)
-        .embeddingModel(embeddingModel)
+    return Neo4jVectorStore.builder(driver, embeddingModel)
         .databaseName("neo4j")                // Optional: defaults to "neo4j"
         .distanceType(Neo4jDistanceType.COSINE) // Optional: defaults to COSINE
         .dimensions(1536)                      // Optional: defaults to 1536
@@ -202,11 +200,11 @@ For example, you can use either the text expression language:
 [source,java]
 ----
 vectorStore.similaritySearch(
-    SearchRequest.defaults()
-        .withQuery("The World")
-        .withTopK(TOP_K)
-        .withSimilarityThreshold(SIMILARITY_THRESHOLD)
-        .withFilterExpression("author in ['john', 'jill'] && 'article_type' == 'blog'"));
+    SearchRequest.builder()
+        .query("The World")
+        .topK(TOP_K)
+        .similarityThreshold(SIMILARITY_THRESHOLD)
+        .filterExpression("author in ['john', 'jill'] && 'article_type' == 'blog'").build());
 ----
 
 or programmatically using the `Filter.Expression` DSL:
@@ -215,13 +213,13 @@ or programmatically using the `Filter.Expression` DSL:
 ----
 FilterExpressionBuilder b = new FilterExpressionBuilder();
 
-vectorStore.similaritySearch(SearchRequest.defaults()
-    .withQuery("The World")
-    .withTopK(TOP_K)
-    .withSimilarityThreshold(SIMILARITY_THRESHOLD)
-    .withFilterExpression(b.and(
+vectorStore.similaritySearch(SearchRequest.builder()
+    .query("The World")
+    .topK(TOP_K)
+    .similarityThreshold(SIMILARITY_THRESHOLD)
+    .filterExpression(b.and(
         b.in("author", "john", "jill"),
-        b.eq("article_type", "blog")).build()));
+        b.eq("article_type", "blog")).build()).build());
 ----
 
 NOTE: Those (portable) filter expressions get automatically converted into the proprietary Neo4j `WHERE` link:https://neo4j.com/developer/cypher/filtering-query-results/[filter expressions].

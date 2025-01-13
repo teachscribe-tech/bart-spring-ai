@@ -127,7 +127,7 @@ List<Document> documents = List.of(
 vectorStore.add(documents);
 
 // Retrieve documents similar to a query
-List<Document> results = this.vectorStore.similaritySearch(SearchRequest.query("Spring").withTopK(5));
+List<Document> results = this.vectorStore.similaritySearch(SearchRequest.builder().query("Spring").topK(5).build());
 ----
 
 [[pgvector-properties]]
@@ -164,11 +164,11 @@ For example, you can use either the text expression language:
 [source,java]
 ----
 vectorStore.similaritySearch(
-    SearchRequest.defaults()
-    .withQuery("The World")
-    .withTopK(TOP_K)
-    .withSimilarityThreshold(SIMILARITY_THRESHOLD)
-    .withFilterExpression("author in ['john', 'jill'] && article_type == 'blog'"));
+    SearchRequest.builder()
+    .query("The World")
+    .topK(TOP_K)
+    .similarityThreshold(SIMILARITY_THRESHOLD)
+    .filterExpression("author in ['john', 'jill'] && article_type == 'blog'").build());
 ----
 
 or programmatically using the `Filter.Expression` DSL:
@@ -177,13 +177,13 @@ or programmatically using the `Filter.Expression` DSL:
 ----
 FilterExpressionBuilder b = new FilterExpressionBuilder();
 
-vectorStore.similaritySearch(SearchRequest.defaults()
-    .withQuery("The World")
-    .withTopK(TOP_K)
-    .withSimilarityThreshold(SIMILARITY_THRESHOLD)
-    .withFilterExpression(b.and(
+vectorStore.similaritySearch(SearchRequest.builder()
+    .query("The World")
+    .topK(TOP_K)
+    .similarityThreshold(SIMILARITY_THRESHOLD)
+    .filterExpression(b.and(
         b.in("author","john", "jill"),
-        b.eq("article_type", "blog")).build()));
+        b.eq("article_type", "blog")).build()).build());
 ----
 
 NOTE: These filter expressions are converted into PostgreSQL JSON path expressions for efficient metadata filtering.
@@ -220,9 +220,7 @@ To configure PgVector in your application, you can use the following setup:
 ----
 @Bean
 public VectorStore vectorStore(JdbcTemplate jdbcTemplate, EmbeddingModel embeddingModel) {
-    return PgVectorStore.builder()
-        .jdbcTemplate(jdbcTemplate)
-        .embeddingModel(embeddingModel)
+    return PgVectorStore.builder(jdbcTemplate, embeddingModel)
         .dimensions(1536)                    // Optional: defaults to model dimensions or 1536
         .distanceType(COSINE_DISTANCE)       // Optional: defaults to COSINE_DISTANCE
         .indexType(HNSW)                     // Optional: defaults to HNSW

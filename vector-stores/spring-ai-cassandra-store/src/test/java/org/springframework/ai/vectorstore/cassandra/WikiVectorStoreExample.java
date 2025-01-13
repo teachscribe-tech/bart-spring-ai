@@ -61,7 +61,7 @@ class WikiVectorStoreExample {
 			Assertions.assertNotNull(store);
 			store.checkSchemaValid();
 
-			store.similaritySearch(SearchRequest.query("Spring").withTopK(1));
+			store.similaritySearch(SearchRequest.builder().query("Spring").topK(1).build());
 		});
 	}
 
@@ -72,7 +72,7 @@ class WikiVectorStoreExample {
 			Assertions.assertNotNull(store);
 			store.checkSchemaValid();
 
-			var results = store.similaritySearch(SearchRequest.query("Spring").withTopK(1));
+			var results = store.similaritySearch(SearchRequest.builder().query("Spring").topK(1).build());
 			assertThat(results).hasSize(1);
 		});
 	}
@@ -93,7 +93,7 @@ class WikiVectorStoreExample {
 			List<SchemaColumn> extraColumns = List.of(new SchemaColumn("revision", DataTypes.INT),
 					new SchemaColumn("id", DataTypes.INT));
 
-			return CassandraVectorStore.builder()
+			return CassandraVectorStore.builder(embeddingModel)
 				.session(cqlSession)
 				.keyspace("wikidata")
 				.table("articles")
@@ -118,7 +118,6 @@ class WikiVectorStoreExample {
 					int chunk_no = 0 < parts.length ? Integer.parseInt(parts[1]) : 0;
 					return List.of("simplewiki", "en", title, chunk_no, 0);
 				})
-				.embeddingModel(embeddingModel())
 				.build();
 		}
 

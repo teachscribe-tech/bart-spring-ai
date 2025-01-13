@@ -25,10 +25,8 @@ import io.weaviate.client.v1.auth.exception.AuthException;
 import org.springframework.ai.embedding.BatchingStrategy;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.embedding.TokenCountBatchingStrategy;
-import org.springframework.ai.vectorstore.weaviate.WeaviateVectorStore;
-import org.springframework.ai.vectorstore.weaviate.WeaviateVectorStore.WeaviateVectorStoreConfig;
-import org.springframework.ai.vectorstore.weaviate.WeaviateVectorStore.WeaviateVectorStoreConfig.MetadataField;
 import org.springframework.ai.vectorstore.observation.VectorStoreObservationConvention;
+import org.springframework.ai.vectorstore.weaviate.WeaviateVectorStore;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -81,9 +79,7 @@ public class WeaviateVectorStoreAutoConfiguration {
 			ObjectProvider<VectorStoreObservationConvention> customObservationConvention,
 			BatchingStrategy batchingStrategy) {
 
-		return WeaviateVectorStore.builder()
-			.weaviateClient(weaviateClient)
-			.embeddingModel(embeddingModel)
+		return WeaviateVectorStore.builder(weaviateClient, embeddingModel)
 			.objectClass(properties.getObjectClass())
 			.filterMetadataFields(properties.getFilterField()
 				.entrySet()

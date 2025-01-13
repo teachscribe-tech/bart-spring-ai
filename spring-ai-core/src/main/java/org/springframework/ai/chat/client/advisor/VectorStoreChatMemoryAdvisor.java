@@ -138,10 +138,12 @@ public class VectorStoreChatMemoryAdvisor extends AbstractChatMemoryAdvisor<Vect
 			advisedSystemText = this.systemTextAdvise;
 		}
 
-		var searchRequest = SearchRequest.query(request.userText())
-			.withTopK(this.doGetChatMemoryRetrieveSize(request.adviseContext()))
-			.withFilterExpression(DOCUMENT_METADATA_CONVERSATION_ID + "=='"
-					+ this.doGetConversationId(request.adviseContext()) + "'");
+		var searchRequest = SearchRequest.builder()
+			.query(request.userText())
+			.topK(this.doGetChatMemoryRetrieveSize(request.adviseContext()))
+			.filterExpression(
+					DOCUMENT_METADATA_CONVERSATION_ID + "=='" + this.doGetConversationId(request.adviseContext()) + "'")
+			.build();
 
 		List<Document> documents = this.getChatMemoryStore().similaritySearch(searchRequest);
 
@@ -213,15 +215,6 @@ public class VectorStoreChatMemoryAdvisor extends AbstractChatMemoryAdvisor<Vect
 		}
 
 		public Builder systemTextAdvise(String systemTextAdvise) {
-			this.systemTextAdvise = systemTextAdvise;
-			return this;
-		}
-
-		/**
-		 * @deprecated use {@link #systemTextAdvise(String)} instead.
-		 */
-		@Deprecated(forRemoval = true, since = "1.0.0-M5")
-		public Builder withSystemTextAdvise(String systemTextAdvise) {
 			this.systemTextAdvise = systemTextAdvise;
 			return this;
 		}

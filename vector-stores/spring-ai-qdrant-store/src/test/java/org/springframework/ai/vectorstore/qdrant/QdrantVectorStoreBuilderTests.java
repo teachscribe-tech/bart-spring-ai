@@ -17,9 +17,9 @@
 package org.springframework.ai.vectorstore.qdrant;
 
 import io.qdrant.client.QdrantClient;
-import io.qdrant.client.QdrantGrpcClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.embedding.TokenCountBatchingStrategy;
 
@@ -28,7 +28,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
 /**
- * Tests for {@link QdrantVectorStore.QdrantBuilder}.
+ * Tests for {@link QdrantVectorStore.Builder}.
  *
  * @author Mark Pollack
  */
@@ -46,7 +46,7 @@ class QdrantVectorStoreBuilderTests {
 
 	@Test
 	void defaultConfiguration() {
-		QdrantVectorStore vectorStore = QdrantVectorStore.builder(qdrantClient).embeddingModel(embeddingModel).build();
+		QdrantVectorStore vectorStore = QdrantVectorStore.builder(this.qdrantClient, this.embeddingModel).build();
 
 		// Verify default values
 		assertThat(vectorStore).hasFieldOrPropertyWithValue("collectionName", "vector_store");
@@ -56,8 +56,7 @@ class QdrantVectorStoreBuilderTests {
 
 	@Test
 	void customConfiguration() {
-		QdrantVectorStore vectorStore = QdrantVectorStore.builder(qdrantClient)
-			.embeddingModel(embeddingModel)
+		QdrantVectorStore vectorStore = QdrantVectorStore.builder(this.qdrantClient, this.embeddingModel)
 			.collectionName("custom_collection")
 			.initializeSchema(true)
 			.batchingStrategy(new TokenCountBatchingStrategy())
@@ -70,31 +69,31 @@ class QdrantVectorStoreBuilderTests {
 
 	@Test
 	void nullQdrantClientInConstructorShouldThrowException() {
-		assertThatThrownBy(() -> QdrantVectorStore.builder(null)).isInstanceOf(IllegalArgumentException.class)
-			.hasMessage("QdrantClient must not be null");
+		assertThatThrownBy(() -> QdrantVectorStore.builder(null, null)).isInstanceOf(IllegalArgumentException.class)
+			.hasMessage("EmbeddingModel must be configured");
 	}
 
 	@Test
 	void nullEmbeddingModelShouldThrowException() {
-		assertThatThrownBy(() -> QdrantVectorStore.builder(qdrantClient).embeddingModel(null).build())
+		assertThatThrownBy(() -> QdrantVectorStore.builder(this.qdrantClient, null).build())
 			.isInstanceOf(IllegalArgumentException.class)
-			.hasMessage("EmbeddingModel must not be null");
+			.hasMessage("EmbeddingModel must be configured");
 	}
 
 	@Test
 	void emptyCollectionNameShouldThrowException() {
 		assertThatThrownBy(
-				() -> QdrantVectorStore.builder(qdrantClient).embeddingModel(embeddingModel).collectionName("").build())
+				() -> QdrantVectorStore.builder(this.qdrantClient, this.embeddingModel).collectionName("").build())
 			.isInstanceOf(IllegalArgumentException.class)
 			.hasMessage("collectionName must not be empty");
 	}
 
 	@Test
 	void nullBatchingStrategyShouldThrowException() {
-		assertThatThrownBy(() -> QdrantVectorStore.builder(qdrantClient)
-			.embeddingModel(embeddingModel)
-			.batchingStrategy(null)
-			.build()).isInstanceOf(IllegalArgumentException.class).hasMessage("BatchingStrategy must not be null");
+		assertThatThrownBy(
+				() -> QdrantVectorStore.builder(this.qdrantClient, this.embeddingModel).batchingStrategy(null).build())
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessage("BatchingStrategy must not be null");
 	}
 
 }

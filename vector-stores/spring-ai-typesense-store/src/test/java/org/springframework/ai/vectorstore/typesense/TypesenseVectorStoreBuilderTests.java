@@ -16,23 +16,24 @@
 
 package org.springframework.ai.vectorstore.typesense;
 
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.embedding.EmbeddingModel;
-import org.springframework.ai.embedding.TokenCountBatchingStrategy;
 import org.typesense.api.Client;
 import org.typesense.api.Configuration;
 import org.typesense.resources.Node;
 
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
+import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.ai.embedding.TokenCountBatchingStrategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
 /**
- * Tests for {@link TypesenseVectorStore.TypesenseBuilder}.
+ * Tests for {@link TypesenseVectorStore.Builder}.
  *
  * @author Mark Pollack
  */
@@ -51,10 +52,7 @@ class TypesenseVectorStoreBuilderTests {
 
 	@Test
 	void defaultConfiguration() {
-		TypesenseVectorStore vectorStore = TypesenseVectorStore.builder()
-			.client(client)
-			.embeddingModel(embeddingModel)
-			.build();
+		TypesenseVectorStore vectorStore = TypesenseVectorStore.builder(this.client, this.embeddingModel).build();
 
 		// Verify default values
 		assertThat(vectorStore).hasFieldOrPropertyWithValue("collectionName", "vector_store");
@@ -65,9 +63,7 @@ class TypesenseVectorStoreBuilderTests {
 
 	@Test
 	void customConfiguration() {
-		TypesenseVectorStore vectorStore = TypesenseVectorStore.builder()
-			.client(client)
-			.embeddingModel(embeddingModel)
+		TypesenseVectorStore vectorStore = TypesenseVectorStore.builder(this.client, this.embeddingModel)
 			.collectionName("custom_collection")
 			.embeddingDimension(1536)
 			.initializeSchema(true)
@@ -80,44 +76,40 @@ class TypesenseVectorStoreBuilderTests {
 
 	@Test
 	void nullClientShouldThrowException() {
-		assertThatThrownBy(() -> TypesenseVectorStore.builder().client(null).build())
+		assertThatThrownBy(() -> TypesenseVectorStore.builder(null, this.embeddingModel).build())
 			.isInstanceOf(IllegalArgumentException.class)
 			.hasMessage("client must not be null");
 	}
 
 	@Test
 	void nullEmbeddingModelShouldThrowException() {
-		assertThatThrownBy(() -> TypesenseVectorStore.builder().client(client).embeddingModel(null).build())
+		assertThatThrownBy(() -> TypesenseVectorStore.builder(this.client, null).build())
 			.isInstanceOf(IllegalArgumentException.class)
-			.hasMessage("EmbeddingModel must not be null");
+			.hasMessage("EmbeddingModel must be configured");
 	}
 
 	@Test
 	void invalidEmbeddingDimensionShouldThrowException() {
-		assertThatThrownBy(() -> TypesenseVectorStore.builder()
-			.client(client)
-			.embeddingModel(embeddingModel)
-			.embeddingDimension(0)
-			.build()).isInstanceOf(IllegalArgumentException.class)
+		assertThatThrownBy(
+				() -> TypesenseVectorStore.builder(this.client, this.embeddingModel).embeddingDimension(0).build())
+			.isInstanceOf(IllegalArgumentException.class)
 			.hasMessage("Embedding dimension must be greater than 0");
 	}
 
 	@Test
 	void emptyCollectionNameShouldThrowException() {
-		assertThatThrownBy(() -> TypesenseVectorStore.builder()
-			.client(client)
-			.embeddingModel(embeddingModel)
-			.collectionName("")
-			.build()).isInstanceOf(IllegalArgumentException.class).hasMessage("collectionName must not be empty");
+		assertThatThrownBy(
+				() -> TypesenseVectorStore.builder(this.client, this.embeddingModel).collectionName("").build())
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessage("collectionName must not be empty");
 	}
 
 	@Test
 	void nullBatchingStrategyShouldThrowException() {
-		assertThatThrownBy(() -> TypesenseVectorStore.builder()
-			.client(client)
-			.embeddingModel(embeddingModel)
-			.batchingStrategy(null)
-			.build()).isInstanceOf(IllegalArgumentException.class).hasMessage("batchingStrategy must not be null");
+		assertThatThrownBy(
+				() -> TypesenseVectorStore.builder(this.client, this.embeddingModel).batchingStrategy(null).build())
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessage("BatchingStrategy must not be null");
 	}
 
 }

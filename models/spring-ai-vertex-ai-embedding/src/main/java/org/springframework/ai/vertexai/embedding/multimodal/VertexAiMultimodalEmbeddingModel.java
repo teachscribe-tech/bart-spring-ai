@@ -37,7 +37,6 @@ import org.springframework.ai.document.Document;
 import org.springframework.ai.embedding.DocumentEmbeddingModel;
 import org.springframework.ai.embedding.DocumentEmbeddingRequest;
 import org.springframework.ai.embedding.Embedding;
-import org.springframework.ai.embedding.EmbeddingOptions;
 import org.springframework.ai.embedding.EmbeddingResponse;
 import org.springframework.ai.embedding.EmbeddingResponseMetadata;
 import org.springframework.ai.embedding.EmbeddingResultMetadata;
@@ -101,7 +100,7 @@ public class VertexAiMultimodalEmbeddingModel implements DocumentEmbeddingModel 
 		// merge the runtime and default vertex ai options.
 		VertexAiMultimodalEmbeddingOptions mergedOptions = this.defaultOptions;
 
-		if (request.getOptions() != null && request.getOptions() != EmbeddingOptions.EMPTY) {
+		if (request.getOptions() != null) {
 			var defaultOptionsCopy = VertexAiMultimodalEmbeddingOptions.builder().from(this.defaultOptions).build();
 			mergedOptions = ModelOptionsUtils.merge(request.getOptions(), defaultOptionsCopy,
 					VertexAiMultimodalEmbeddingOptions.class);
@@ -142,10 +141,10 @@ public class VertexAiMultimodalEmbeddingModel implements DocumentEmbeddingModel 
 		}
 
 		// optional text parameter
-		if (StringUtils.hasText(document.getContent())) {
-			instanceBuilder.text(document.getContent());
+		if (StringUtils.hasText(document.getText())) {
+			instanceBuilder.text(document.getText());
 			documentMetadata.put(ModalityType.TEXT,
-					new DocumentMetadata(document.getId(), MimeTypeUtils.TEXT_PLAIN, document.getContent()));
+					new DocumentMetadata(document.getId(), MimeTypeUtils.TEXT_PLAIN, document.getText()));
 		}
 
 		Media media = document.getMedia();
@@ -154,7 +153,7 @@ public class VertexAiMultimodalEmbeddingModel implements DocumentEmbeddingModel 
 				instanceBuilder.text(media.getData().toString());
 				documentMetadata.put(ModalityType.TEXT,
 						new DocumentMetadata(document.getId(), MimeTypeUtils.TEXT_PLAIN, media.getData()));
-				if (StringUtils.hasText(document.getContent())) {
+				if (StringUtils.hasText(document.getText())) {
 					logger.warn("Media type String overrides the Document text content!");
 				}
 			}
